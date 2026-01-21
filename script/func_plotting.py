@@ -2,9 +2,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import arabic_reshaper
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import seaborn as sns
+from bidi.algorithm import get_display
 from matplotlib import rcParams
 from numpy import any, arange, linspace
 
@@ -16,6 +18,25 @@ rcParams['font.family'] = [
     'Noto Sans Devanagari'
 ]
 sns.set_style('whitegrid')
+
+
+def contains_arabic(text: str) -> bool:
+    return any(
+        '\u0600' <= ch <= '\u06FF' or
+        '\u0750' <= ch <= '\u077F' or
+        '\u08A0' <= ch <= '\u08FF'
+        for ch in text
+    )
+    
+    
+def normalize_location_text(text: str) -> str:
+    """
+    Automatically reshape Arabic text if present.
+    Leaves all other scripts untouched.
+    """
+    if contains_arabic(text):
+        return get_display(arabic_reshaper.reshape(text))
+    return text
 
 
 def plot_annual_max_with_trends(
