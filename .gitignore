@@ -193,3 +193,5 @@ cython_debug/
 
 .txt
 *txt
+
+/input
