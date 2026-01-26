@@ -237,6 +237,7 @@ def plot_analysis(
             return
     
     result = results[model][lat_lon_tuple]
+    location = result['location info']
     annual_max = result['annual_maxima']
     stat = result['gev_stationary']
     nonstat = result['gev_nonstationary']
@@ -251,7 +252,7 @@ def plot_analysis(
     ax_bottom_right = fig.add_subplot(gs[1, 1])
 
     fig.suptitle(
-        f'GEV Analysis: {model} - {normalize_location_text(location_info)}', 
+        f'GEV Analysis: {model} - lat|lon = {str(lat_lon_tuple[0].round(3))}|{str(lat_lon_tuple[1].round(3))} closest point{normalize_location_text(location_info)}', 
         fontsize=fontsize*1.25, fontweight='bold'
         )
     
@@ -297,11 +298,10 @@ def plot_analysis(
     if save_path:
         Path(save_path).mkdir(parents=True, exist_ok=True)
         time_date = datetime.today().date().isoformat()
-        location = '-'.join([
-            result_display['location info'].split(',')[0].strip(), 
-            result_display['location info'].split(',')[-1].strip()
-            ])
-        file_name = f"/GEVanalysis_{model}_{location}_{time_date}.png"
+        country = location.split(',')[-1].strip()
+        lat_str, lon_str = str(round(float(lat_lon_tuple[0]), 3)), str(round(float(lat_lon_tuple[1]),3))
+    
+        file_name = f"/GEVanalysis_{model}_{country}_{lat_str}|{lon_str}_{time_date}.png"
         print(f"\t saving GEV analysis to {save_path} as {file_name}")
 
         plt.savefig(save_path+file_name, dpi=300, bbox_inches='tight')
