@@ -27,6 +27,20 @@ def prepare_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> Data
     return data_hindcast
 
 
+def prepare_pooled_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> DataFrame:
+        """Calculate target years and filter to hindcast period."""
+        mask = (data['sim_year'] >= hindcast_start) & (data['sim_year'] <= hindcast_end)
+        data_hindcast = data[mask].copy()
+
+        print(f"\nData Summary:")
+        print(f"  Hindcast period: {hindcast_start}-{hindcast_end}")
+        print(f"  Total observations: {len(data_hindcast):,}")
+        print(f"  Models: {data_hindcast['model'].nunique()}")
+        print(f"  Locations: {min(data_hindcast[['lon', 'lat']].nunique().values)}")
+        
+        return data_hindcast
+
+
 def get_dataset_overview_for_model_at_location(
     dic_data: dict, model_label:Optional[str] = None, model_nr:Optional[int] = None,
     site_id: Optional[float] = None, lon:Optional[float] = None, lat:Optional[float] = None
@@ -59,8 +73,7 @@ def get_dataset_overview_for_model_at_location(
             )
     
     print(
-        f"Model {model_label} -" if model_label else f"Model {model_nr} -" 
-        f" location-ID {site_id} " if site_id else f"target lon|lat {lon}|{lat} -" 
+        f"Model {model_label} ({model_nr}) - location-ID {site_id} "
         f"\nFull dataframe {data_for_model_at_location.shape} vs reduced {data_for_model_at_location.dropna().shape}"
         f"\ncoordinates in original dataset lon|lat: {lon:.5f}|{lat:.5f}")
     return data_for_model_at_location, lon, lat

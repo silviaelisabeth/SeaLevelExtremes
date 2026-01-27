@@ -6,17 +6,25 @@ from scipy import stats
 from scipy.optimize import minimize
 
 
-def extract_annual_maxima(data_hindcast: DataFrame, model: str, lon: float, lat: float) -> DataFrame:
+# !!!ToDO: check extract_annual_maxima - not again selecting max from the annual max dataset!
+def extract_annual_maxima_unique(
+    data_hindcast: DataFrame, lon: float, lat: float, model: Optional[str] = None
+    ) -> DataFrame:
     """
     Extract annual maxima for a specific model-location combination.
     For each sim_year (actual calendar year), take the maximum across all leads and ensemble members.
     """
-    subset = data_hindcast[
-        (data_hindcast['model'] == model) &
-        (data_hindcast['lon'] == lon) &
-        (data_hindcast['lat'] == lat)
-    ].copy()
-
+    if model:
+        subset = data_hindcast[
+            (data_hindcast['model'] == model) &
+            (data_hindcast['lon'] == lon) &
+            (data_hindcast['lat'] == lat)
+        ].copy()
+    else:
+        subset = data_hindcast[
+            (data_hindcast['lon'] == lon) &
+            (data_hindcast['lat'] == lat)
+        ].copy()
     if subset.empty:
         return DataFrame(columns=['year', 'annual_max'])
 
@@ -29,7 +37,34 @@ def extract_annual_maxima(data_hindcast: DataFrame, model: str, lon: float, lat:
         .sort_values('year')
     )
 
+def extract_annual_maxima(
+    data_hindcast: DataFrame, lon: float, lat: float, model: Optional[str] = None
+    ) -> DataFrame:
+    """
+    Extract annual maxima for a specific model-location combination.
+    For each sim_year (actual calendar year), take the maximum across all leads and ensemble members.
+    """
+    if model:
+        subset = data_hindcast[
+            (data_hindcast['model'] == model) &
+            (data_hindcast['lon'] == lon) &
+            (data_hindcast['lat'] == lat)
+        ].copy()
+    else:
+        subset = data_hindcast[
+            (data_hindcast['lon'] == lon) &
+            (data_hindcast['lat'] == lat)
+        ].copy()
 
+    if subset.empty:
+        return DataFrame(columns=['year', 'annual_max'])
+    
+    return (subset
+            .sort_values(['sim_year', 'model'])
+            .reset_index(drop=True)
+            .rename(columns={'sim_year': 'year', 'storm_surge': 'annual_max'})
+            )
+    
 
 def fit_stationary_gev(data: ndarray) -> Dict:
     """
@@ -304,7 +339,7 @@ def calculate_return_levels(
     return return_levels
 
 
-def analyze_location(
+def analyze_location_per_model(
     data_hindcast:DataFrame, model: str, lat: float, lon: float, location_info: str, return_periods: list
     )-> Dict:
         """
@@ -352,4 +387,54 @@ def analyze_location(
                     'year': int(years.max()),
                     'values': rl_nonstat_end
                     }
+        }
+
+
+def analyze_per_location(
+        data_hindcast:DataFrame, lat: float, lon: float, location_info: str, return_periods: list
+        )-> Dict:
+        """
+        Complete analysis for one model-location combination.
+        Fits both stationary and non-stationary GEV.
+        """
+        annual_max = extract_annual_maxima(data_hindcast, lon=lon, lat=lat)
+        
+        if len(annual_max) < 10:
+                return None
+
+        years = annual_max['year'].values
+        data = annual_max['annual_max'].values
+
+        print("\t\tconducting stationary GEV...")
+        gev_stationary = fit_stationary_gev(data)
+        print(f"\t\t\tstationary GEV done (success {gev_stationary != None}); continuing with non-stationary GEV...")
+        gev_nonstat_loc = fit_nonstationary_gev(years, data, 'location')
+        print(f"\t\t\tnon-stationary GEV done (success {gev_nonstat_loc != None}).")
+        comparison = compare_models(gev_stationary, gev_nonstat_loc)
+
+        rl_stationary = calculate_return_levels(gev_stationary, return_periods)
+        rl_nonstat_start = calculate_return_levels(
+                gev_nonstat_loc, return_periods, year=years.min()
+        ) if gev_nonstat_loc else None
+
+        rl_nonstat_end = calculate_return_levels(
+                gev_nonstat_loc, return_periods, year=years.max()
+        ) if gev_nonstat_loc else None
+
+        return {'location': (lat, lon),
+                'location info': location_info,
+                'annual_maxima': annual_max,
+                'gev_stationary': gev_stationary,
+                'gev_nonstationary': gev_nonstat_loc,
+                'model_comparison': comparison,
+                'return_levels_stationary': rl_stationary,
+                'return_levels_nonstationary_start': {
+                        'year': int(years.min()),
+                        'values': rl_nonstat_start
+                        },
+                'return_levels_nonstationary_end': {
+                        'year': int(years.max()),
+                        'values': rl_nonstat_end
+                        },
+                'data from model(s)':None,
         }
