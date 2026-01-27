@@ -1,4 +1,6 @@
-from pandas import DataFrame
+from typing import Optional
+
+from pandas import DataFrame, MultiIndex
 
 
 def adding_plot_and_text(message, ls_messages, print_msg):
@@ -23,3 +25,42 @@ def prepare_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> Data
     print(f"  Locations: {min(data_hindcast[['lon', 'lat']].nunique().values)}")
     
     return data_hindcast
+
+
+def get_dataset_overview_for_model_at_location(
+    dic_data: dict, model_label:Optional[str] = None, model_nr:Optional[int] = None,
+    site_id: Optional[float] = None, lon:Optional[float] = None, lat:Optional[float] = None
+    ) -> tuple[DataFrame, float, float]:
+    if all(param is not None for param in (model_label, site_id)):
+        data_for_model = dic_data[model_label]['valid data']
+        data_for_model_at_location = DataFrame(
+            data_for_model[:, :, site_id], 
+            columns=['member0', 'member1'],
+            index=data_for_model[:, :, site_id].sim_year.astype(int)
+            )
+        lon = data_for_model[:, :, site_id].lon.values
+        lat = data_for_model[:, :, site_id].lat.values
+    
+    elif all(param is not None for param in (model_nr, lon, lat)):
+        data_for_model = dic_data.sel(location=dict(lon=lon, lat=lat),)[model_nr]
+        data_for_model_at_location = DataFrame(
+            data_for_model,
+            columns=['member0', 'member1'],
+            index=data_for_model.sim_year.astype(int)
+            )
+        lon = data_for_model.lon.values
+        lat = data_for_model.lat.values
+    
+    else:
+        raise ValueError(
+            f"Failed to process `data_for_model`. Missing parameters:"
+            f"\n\teither provide model label and site_id: {model_label}, {site_id}, "
+            f"\n\tor provide model_nr, lon, lat: {model_nr}, {lon}, {lat}"
+            )
+    
+    print(
+        f"Model {model_label} -" if model_label else f"Model {model_nr} -" 
+        f" location-ID {site_id} " if site_id else f"target lon|lat {lon}|{lat} -" 
+        f"\nFull dataframe {data_for_model_at_location.shape} vs reduced {data_for_model_at_location.dropna().shape}"
+        f"\ncoordinates in original dataset lon|lat: {lon:.5f}|{lat:.5f}")
+    return data_for_model_at_location, lon, lat

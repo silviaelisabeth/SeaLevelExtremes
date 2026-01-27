@@ -8,7 +8,7 @@ from geopy.exc import GeocoderTimedOut
 from geopy.geocoders import Nominatim
 from geopy.location import Location
 from numpy import allclose
-from pandas import DataFrame
+from pandas import DataFrame, MultiIndex
 from tqdm import tqdm
 
 #!!!ToDo: adding typing, remove unused functions...
@@ -275,3 +275,29 @@ def prepare_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> Data
         print(f"  Locations: {min(data_hindcast[['lon', 'lat']].nunique().values)}")
         
         return data_hindcast
+    
+
+def sites_to_location(da):
+    """
+    Replace arbitrary 'sites' index with a geographic location index (lon, lat).
+
+    Parameters
+    ----------
+    da : xr.DataArray
+        dims: sample x member x sites
+        coords: lon(sites), lat(sites)
+    round_coords : int
+        Decimal places for lon/lat to stabilize floating point comparisons
+    """
+
+    lon = da.lon.values
+    lat = da.lat.values
+
+    location_index = MultiIndex.from_arrays([lon, lat], names=("lon", "lat"))
+
+    # Replace 'sites' with 'location'
+    da = da.assign_coords(location=("sites", location_index))
+    da = da.swap_dims({"sites": "location"})
+    da = da.drop_vars("sites")
+
+    return da
