@@ -43,6 +43,7 @@ def plot_annual_max_with_trends(
     ax, annual_max, result, nonstat, comp, colors_trends, linestyle_trends, 
     axes_color, color_markers='#99E3DDFF', ms=6, fontsize=10, ls_periods: list = ['10-year', '50-year', '100-year']
     ):
+    skip_non_stat = False
     ax.plot(
         annual_max['year'], annual_max['annual_max'], 'o', 
         color=color_markers, markersize=ms, label='Annual max'
@@ -70,6 +71,7 @@ def plot_annual_max_with_trends(
             f"\t WARNING! Skipping non-stationary with model comparison {comp['p_value']:.2f} "
             f"(threshold for non-stationary 0.05)"
         )
+        skip_non_stat = True
     
     nsamples = len(annual_max)
     years_unique = annual_max.year.unique()
@@ -94,6 +96,7 @@ def plot_annual_max_with_trends(
 
     ax.tick_params(axis='x', colors=axes_color)
     ax.tick_params(axis='y', colors=axes_color)
+    return skip_non_stat
 
 
 def plot_model_comparison(
@@ -132,7 +135,7 @@ def plot_model_comparison(
 
 def plot_level_evolution(
     ax, result, periods: list, color_levels: list[str], width: float = 0.35, fontsize: float = 9, 
-    axes_color: str = '#333333',
+    axes_color: str = '#333333', skip_non_stat: bool = False
     ):
     levels_start = [result['return_levels_nonstationary_start']['values'][p] for p in periods]
     levels_end = [result['return_levels_nonstationary_end']['values'][p] for p in periods]
@@ -163,7 +166,10 @@ def plot_level_evolution(
 
     ax.set_xlabel('Return Period', fontsize=fontsize)
     ax.set_ylabel('Return Level (m)', fontsize=fontsize)
-    ax.set_title('Return Levels Non-Stationary Evolution', fontsize=fontsize)
+    if skip_non_stat:
+        ax.set_title('Return Levels Stationary Evolution', fontsize=fontsize)        
+    else:
+        ax.set_title('Return Levels Non-Stationary Evolution', fontsize=fontsize)
     ax.set_xticks(x)
     
     period_labels = []
@@ -273,7 +279,7 @@ def plot_analysis(
 
     # ----------------------------------------------------------------------------
     # Plot TOP-LEFT: Annual maxima with trends
-    plot_annual_max_with_trends(
+    skip_non_stat = plot_annual_max_with_trends(
         annual_max=annual_max, result=result, nonstat=nonstat, comp=comp, ls_periods=periods_evolution,
         colors_trends=colors_trends, axes_color=axes_color, color_markers=color_markers, 
         linestyle_trends=linestyle_trends, ms=6, fontsize=fontsize, ax=ax_top_left, 
@@ -294,7 +300,7 @@ def plot_analysis(
         plot_level_evolution(
             result=result, periods=periods_evolution, width=width_bar_returns, 
             color_levels=colors_return_levels, fontsize=fontsize, axes_color=axes_color, 
-            ax=ax_bottom_left
+            ax=ax_bottom_left, skip_non_stat=skip_non_stat
         )
 
     # ----------------------------------------------------------------------------
@@ -316,6 +322,102 @@ def plot_analysis(
         lat_str, lon_str = str(round(float(lat_lon_tuple[0]), 3)), str(round(float(lat_lon_tuple[1]),3))
     
         file_name = f"/GEVanalysis_{model}_{country}_{lat_str}|{lon_str}_{time_date}.png"
+        print(f"\t saving GEV analysis to {save_path} as {file_name}")
+
+        plt.savefig(save_path+file_name, dpi=300, bbox_inches='tight')
+    plt.show()
+    
+
+def plot_pooled_analysis(
+        results: dict,
+        lat_lon_tuple: (float, float),
+        location_info: str,
+        periods_evolution: list[str] = ['10-year', '50-year', '100-year'],
+        save_path: str = None,
+        width_bar_returns: float = 0.35,
+        box_parameters_x=0.05, 
+        box_parameters_y=0.95,
+        color_markers='#99E3DDFF',
+        colors_trends: str = "#1D141BFF",
+        bbox_color: str = '#F5F5F5FF',
+        colors_models: list[str] = ['#B887ADFF', '#008A80FF'],
+        colors_return_levels: list[str] = ['#008A80FF','#CAA5C2FF'],
+        linestyle_trends: list = ['dashdot', 'dashed', 'solid'],
+        axes_color: str = '#333333',
+        leg_comparison_x: float = 0.25,
+        leg_comparison_y: float = 0.5,
+        fontsize: float = 9,
+        figsize: tuple[float, float] = (15, 8),
+        linespace: float = 1.5,
+    ):
+    """Create comprehensive visualization."""
+
+    result = results[lat_lon_tuple]
+    location = result['location info']
+    annual_max = result['annual_maxima']
+    stat = result['gev_stationary']
+    nonstat = result['gev_nonstationary']
+    comp = result['model_comparison']
+    
+    fig = plt.figure(figsize=figsize)
+    gs = gridspec.GridSpec(2, 2, width_ratios=[2, 1], height_ratios=[1, 1], figure=fig)
+
+    ax_top_left = fig.add_subplot(gs[0, 0])
+    ax_bottom_left = fig.add_subplot(gs[1, 0])
+    ax_top_right = fig.add_subplot(gs[0, 1])
+    ax_bottom_right = fig.add_subplot(gs[1, 1])
+
+    fig.suptitle(
+        f'GEV Analysis for location {str(lat_lon_tuple[0].round(3))}|{str(lat_lon_tuple[1].round(3))} (lat|lon) '
+        f'closest point {normalize_location_text(location_info)}', 
+        fontsize=fontsize*1.25, fontweight='bold'
+        )
+
+    # ----------------------------------------------------------------------------
+    # Plot TOP-LEFT: Annual maxima with trends
+    skip_non_stat = plot_annual_max_with_trends(
+        annual_max=annual_max, result=result, nonstat=nonstat, comp=comp, ls_periods=periods_evolution,
+        colors_trends=colors_trends, axes_color=axes_color, color_markers=color_markers, 
+        linestyle_trends=linestyle_trends, ms=6, fontsize=fontsize, ax=ax_top_left, 
+        )
+
+    # ----------------------------------------------------------------------------   
+    # Plot TOP-RIGHT: GEV parameters summary
+    create_parameter_summary(
+        stat=stat, nonstat=nonstat, comp=comp, 
+        box_x=box_parameters_x, box_y=box_parameters_y, 
+        bbox=dict(boxstyle='round', facecolor='#F5F5F5FF', alpha=0.5), 
+        fontsize=fontsize*0.7, linespace=linespace, ax=ax_top_right
+        )
+
+    # ----------------------------------------------------------------------------
+    # Plot BOTTOM-LEFT: Return levels evolution
+    if result['return_levels_nonstationary_start'] and result['return_levels_nonstationary_end']:
+        plot_level_evolution(
+            result=result, periods=periods_evolution, width=width_bar_returns, 
+            color_levels=colors_return_levels, fontsize=fontsize, axes_color=axes_color, 
+            ax=ax_bottom_left, skip_non_stat=skip_non_stat
+        )
+
+    # ----------------------------------------------------------------------------
+    # Plot BOTTOM-RIGHT: Model comparison
+    if stat and nonstat and comp:
+        plot_model_comparison(
+            comp=result['model_comparison'], stat=result['gev_stationary'], 
+            nonstat=result['gev_nonstationary'], models_names=['Stationary', 'Non-Stationary'], 
+            colors_models=colors_models, bbox_color=bbox_color, fontsize=fontsize, 
+            leg_x=leg_comparison_x, leg_y=leg_comparison_y, ax=ax_bottom_right
+    )
+
+    plt.tight_layout()
+    
+    if save_path:
+        Path(save_path).mkdir(parents=True, exist_ok=True)
+        time_date = datetime.today().date().isoformat()
+        country = location.split(',')[-1].strip()
+        lat_str, lon_str = str(round(float(lat_lon_tuple[0]), 3)), str(round(float(lat_lon_tuple[1]),3))
+    
+        file_name = f"/GEVanalysis_pooled_{country}_{lat_str}|{lon_str}_{time_date}.png"
         print(f"\t saving GEV analysis to {save_path} as {file_name}")
 
         plt.savefig(save_path+file_name, dpi=300, bbox_inches='tight')
