@@ -27,18 +27,22 @@ def prepare_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> Data
     return data_hindcast
 
 
-def prepare_pooled_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> DataFrame:
+def prepare_pooled_data(dic_data: dict, hindcast_start:int, hindcast_end: int) -> dict:
         """Calculate target years and filter to hindcast period."""
-        mask = (data['sim_year'] >= hindcast_start) & (data['sim_year'] <= hindcast_end)
-        data_hindcast = data[mask].copy()
+        dic_data_hindcast = {}
+        for loc_id, data in dic_data.items():
+            mask = (data['sim_year'] >= hindcast_start) & (data['sim_year'] <= hindcast_end)
+            dic_data_hindcast[loc_id] = data[mask].copy()
 
-        print(f"\nData Summary:")
-        print(f"  Hindcast period: {hindcast_start}-{hindcast_end}")
-        print(f"  Total observations: {len(data_hindcast):,}")
-        print(f"  Models: {data_hindcast['model'].nunique()}")
-        print(f"  Locations: {min(data_hindcast[['lon', 'lat']].nunique().values)}")
+        # -----------------------------------------------------------------
+        ls_nmodels = [len(v.model.unique()) for v in dic_data_hindcast.values()]
         
-        return data_hindcast
+        print(f"\nData Summary")
+        print(f"  Hindcast period: {hindcast_start}-{hindcast_end}")
+        print(f"  Available Models per Location: {min(ls_nmodels)}-{max(ls_nmodels)}")
+        print(f"  Locations to analyse: {len(dic_data_hindcast.keys())}")
+        
+        return dic_data_hindcast
 
 
 def get_dataset_overview_for_model_at_location(

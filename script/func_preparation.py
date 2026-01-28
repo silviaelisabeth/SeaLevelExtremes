@@ -92,21 +92,12 @@ def locations_label_lookup_with_cache(
     if cache_path.exists():
         with open(cache_file, 'rb') as f:
             cache = pickle.load(f)
-        print(f"✓ Loaded cache with {len(cache)} existing results")
     else:
         cache = {}
     
     locations_label = [None] * len(locations)
     failed_indices = []
-    
-    to_process = [ix for ix in locations.index if ix not in cache]
-    already_done = len(locations) - len(to_process)
-
-    print(f"Geocoding status:")
-    print(f"  Already cached: {already_done}/{len(locations)}")
-    print(f"  To process: {len(to_process)}")
-    print(f"  Estimated time: ~{len(to_process) * delay / 60:.1f} minutes")
-    
+        
     try:
         for ix in tqdm(locations.index, desc="\t\tGeocoding"):
             if ix in cache:
@@ -258,6 +249,19 @@ def locations_label_lookup(locations: DataFrame):
         locations_label.append(location)
         sleep(1) 
     return locations_label
+
+
+def locations_label_lookup_simple(lat: float, lon: float):
+    geolocator = Nominatim(user_agent="storm_surge_analysis", timeout=10)
+    
+    try:
+        location = geolocator.reverse((lat, lon), exactly_one=True)
+    except GeocoderTimedOut:
+        print(f"Timeout, retrying...")
+        sleep(1)
+        location = geolocator.reverse((lat, lon), exactly_one=True)
+        
+    return location
 
 
 def prepare_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> DataFrame:

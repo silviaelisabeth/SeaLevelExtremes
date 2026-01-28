@@ -332,7 +332,7 @@ def plot_analysis(
     
 
 def plot_pooled_analysis(
-        results: dict,
+        result: dict,
         lat_lon_tuple: (float, float),
         location_info: str,
         periods_evolution: list[str] = ['10-year', '50-year', '100-year'],
@@ -355,7 +355,6 @@ def plot_pooled_analysis(
     ):
     """Create comprehensive visualization."""
 
-    result = results[lat_lon_tuple]
     location = result['location info']
     annual_max = result['annual_maxima']
     stat = result['gev_stationary']
@@ -417,7 +416,7 @@ def plot_pooled_analysis(
     if save_path:
         Path(save_path).mkdir(parents=True, exist_ok=True)
         time_date = datetime.today().date().isoformat()
-        country = location.split(',')[-1].strip()
+        country = location_info.split(',')[-1].strip()
         lat_str, lon_str = str(round(float(lat_lon_tuple[0]), 3)), str(round(float(lat_lon_tuple[1]),3))
     
         file_name = f"/GEVanalysis_pooled_{country}_{lat_str}|{lon_str}_{time_date}.png"

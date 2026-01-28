@@ -392,50 +392,51 @@ def analyze_location_per_model(
 
 
 def analyze_per_location(
-        data_hindcast:DataFrame, lat: float, lon: float, location_info: str, return_periods: list
-        )-> Dict:
-        """
-        Complete analysis for one model-location combination.
-        Fits both stationary and non-stationary GEV.
-        """
-        annual_max = extract_annual_maxima_at_location(data_hindcast, lon=lon, lat=lat)
-        
-        if len(annual_max) < 10:
-                return None
+    data_hindcast:DataFrame, lat: float, lon: float, location_info: str, return_periods: list
+    )-> dict:
+    """
+    Complete analysis for one model-location combination.
+    Fits both stationary and non-stationary GEV.
+    """
+    annual_max = extract_annual_maxima_at_location(data_hindcast, lon=lon, lat=lat)
+    
+    if len(annual_max) < 10:
+            return None
 
-        years = annual_max['year'].values
-        data = annual_max['annual_max'].values
+    years = annual_max['year'].values
+    data = annual_max['annual_max'].values
 
-        print("\t\tconducting stationary GEV...")
-        gev_stationary = fit_stationary_gev(data)
-        print(f"\t\t\tstationary GEV done (success {gev_stationary != None}); continuing with non-stationary GEV...")
-        gev_nonstat_loc = fit_nonstationary_gev(years, data, 'location')
-        print(f"\t\t\tnon-stationary GEV done (success {gev_nonstat_loc != None}).")
-        comparison = compare_models(gev_stationary, gev_nonstat_loc)
+    print("\tConducting stationary GEV...")
+    gev_stationary = fit_stationary_gev(data)
+    print(f"\t → Stationary GEV done (success {gev_stationary != None})")
+    print("\tContinuing with non-stationary GEV...")
+    gev_nonstat_loc = fit_nonstationary_gev(years, data, 'location')
+    print(f"\t → Non-stationary GEV done (success {gev_nonstat_loc != None})")
+    comparison = compare_models(gev_stationary, gev_nonstat_loc)
 
-        rl_stationary = calculate_return_levels(gev_stationary, return_periods)
-        rl_nonstat_start = calculate_return_levels(
-                gev_nonstat_loc, return_periods, year=years.min()
-        ) if gev_nonstat_loc else None
+    rl_stationary = calculate_return_levels(gev_stationary, return_periods)
+    rl_nonstat_start = calculate_return_levels(
+            gev_nonstat_loc, return_periods, year=years.min()
+    ) if gev_nonstat_loc else None
 
-        rl_nonstat_end = calculate_return_levels(
-                gev_nonstat_loc, return_periods, year=years.max()
-        ) if gev_nonstat_loc else None
+    rl_nonstat_end = calculate_return_levels(
+            gev_nonstat_loc, return_periods, year=years.max()
+    ) if gev_nonstat_loc else None
 
-        return {'location': (lat, lon),
-                'location info': location_info,
-                'annual_maxima': annual_max,
-                'gev_stationary': gev_stationary,
-                'gev_nonstationary': gev_nonstat_loc,
-                'model_comparison': comparison,
-                'return_levels_stationary': rl_stationary,
-                'return_levels_nonstationary_start': {
-                        'year': int(years.min()),
-                        'values': rl_nonstat_start
-                        },
-                'return_levels_nonstationary_end': {
-                        'year': int(years.max()),
-                        'values': rl_nonstat_end
-                        },
-                'data from model(s)':None,
-        }
+    return {'location': (lat, lon),
+            'location info': location_info,
+            'annual_maxima': annual_max,
+            'gev_stationary': gev_stationary,
+            'gev_nonstationary': gev_nonstat_loc,
+            'model_comparison': comparison,
+            'return_levels_stationary': rl_stationary,
+            'return_levels_nonstationary_start': {
+                    'year': int(years.min()),
+                    'values': rl_nonstat_start
+                    },
+            'return_levels_nonstationary_end': {
+                    'year': int(years.max()),
+                    'values': rl_nonstat_end
+                    },
+            'data from model(s)':None,
+    }
