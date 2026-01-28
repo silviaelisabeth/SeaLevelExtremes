@@ -145,6 +145,9 @@ def plot_level_evolution(
             x - width/2, levels_start, width, 
             label='start ' + str(result['return_levels_nonstationary_start']['year']), color=color_levels[0]
             )
+    
+    if skip_non_stat == True:
+        levels_end = levels_start.copy()
     bars_end = ax.bar(
             x + width/2, levels_end, width, 
             label='end ' + str(result['return_levels_nonstationary_end']['year']),  color=color_levels[1]
@@ -167,7 +170,7 @@ def plot_level_evolution(
     ax.set_xlabel('Return Period', fontsize=fontsize)
     ax.set_ylabel('Return Level (m)', fontsize=fontsize)
     if skip_non_stat:
-        ax.set_title('Return Levels Stationary Evolution', fontsize=fontsize)        
+        ax.set_title('Return Levels Stationary', fontsize=fontsize)        
     else:
         ax.set_title('Return Levels Non-Stationary Evolution', fontsize=fontsize)
     ax.set_xticks(x)
