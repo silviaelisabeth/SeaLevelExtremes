@@ -41,7 +41,7 @@ def normalize_location_text(text: str) -> str:
 
 def plot_annual_max_with_trends(
     ax, annual_max, result, nonstat, comp, colors_trends, linestyle_trends, 
-    axes_color, color_markers='#99E3DDFF', ms=6, fontsize=10
+    axes_color, color_markers='#99E3DDFF', ms=6, fontsize=10, ls_periods: list = ['10-year', '50-year', '100-year']
     ):
     ax.plot(
         annual_max['year'], annual_max['annual_max'], 'o', 
@@ -49,7 +49,11 @@ def plot_annual_max_with_trends(
         )
 
     if result['return_levels_stationary']:
-        for en, period in enumerate(['10-year', '50-year', '100-year']):
+        for en, period in enumerate(ls_periods):
+            if period not in result['return_levels_stationary']:
+                print(f" - Warning: period {period} not found in return levels stationary, skipping...")
+                continue
+            
             level = result['return_levels_stationary'][period]
             ax.axhline(
                 y=level, linestyle=linestyle_trends[en], color=colors_trends, label=f'{period} (stationary)'
@@ -66,10 +70,16 @@ def plot_annual_max_with_trends(
             f"\t WARNING! Skipping non-stationary with model comparison {comp['p_value']:.2f} "
             f"(threshold for non-stationary 0.05)"
         )
-            
+    
+    nsamples = len(annual_max)
+    years_unique = annual_max.year.unique()
     ax.set_xlabel('Year', fontsize=fontsize*0.9)
     ax.set_ylabel('Storm Surge (m)', fontsize=fontsize*0.9)
-    ax.set_title(f'Annual Maximum Storm Surge (n={len(annual_max)} years)', fontsize=fontsize)
+    ax.set_title(
+        f'Annual Maximum Storm Surge (n={nsamples} samples; {len(years_unique)} unique years b/w '
+        f'{int(years_unique.min())}-{int(years_unique.max())})', 
+        fontsize=fontsize
+        )
     
     leg = ax.legend(loc=0, edgecolor=axes_color, borderpad=.65, fontsize=fontsize*0.75)
     leg.get_frame().set_linewidth(.5)
@@ -121,59 +131,64 @@ def plot_model_comparison(
 
 
 def plot_level_evolution(
-        ax, result, periods: list, color_levels: list[str], width: float = 0.35, fontsize: float = 9, 
-        axes_color: str = '#333333',
-        ):
-        levels_1960 = [result['return_levels_1960'][p] for p in periods]
-        levels_2019 = [result['return_levels_2019'][p] for p in periods]
-        
-        x = arange(len(periods))
-        
-        bars_1960 = ax.bar(x - width/2, levels_1960, width, label='1960',  color=color_levels[0])
-        bars_2019 = ax.bar(x + width/2, levels_2019, width, label='2019',  color=color_levels[1])
-        
-        for bar, level in zip(bars_1960, levels_1960):
-                height = bar.get_height()
-                ax.text(
-                        bar.get_x() + bar.get_width()/2., height, f'{level:.2f}m', 
-                        ha='center', va='bottom', fontsize=fontsize*0.85,
-                        )
-        
-        for bar, level in zip(bars_2019, levels_2019):
-                height = bar.get_height()
-                ax.text(
-                        bar.get_x() + bar.get_width()/2., height, f'{level:.2f}m',  
-                        ha='center', va='bottom', fontsize=fontsize*0.85,
-                        )
+    ax, result, periods: list, color_levels: list[str], width: float = 0.35, fontsize: float = 9, 
+    axes_color: str = '#333333',
+    ):
+    levels_start = [result['return_levels_nonstationary_start']['values'][p] for p in periods]
+    levels_end = [result['return_levels_nonstationary_end']['values'][p] for p in periods]
+    x = arange(len(periods))
+    
+    bars_start = ax.bar(
+            x - width/2, levels_start, width, 
+            label='start ' + str(result['return_levels_nonstationary_start']['year']), color=color_levels[0]
+            )
+    bars_end = ax.bar(
+            x + width/2, levels_end, width, 
+            label='end ' + str(result['return_levels_nonstationary_end']['year']),  color=color_levels[1]
+            )
+    
+    for bar, level in zip(bars_start, levels_start):
+            height = bar.get_height()
+            ax.text(
+                    bar.get_x() + bar.get_width()/2., height, f'{level:.2f}m', 
+                    ha='center', va='bottom', fontsize=fontsize*0.85,
+                    )
+    
+    for bar, level in zip(bars_end, levels_end):
+            height = bar.get_height()
+            ax.text(
+                    bar.get_x() + bar.get_width()/2., height, f'{level:.2f}m',  
+                    ha='center', va='bottom', fontsize=fontsize*0.85,
+                    )
 
-        ax.set_xlabel('Return Period', fontsize=fontsize)
-        ax.set_ylabel('Return Level (m)', fontsize=fontsize)
-        ax.set_title('Return Levels: 1960 vs 2019 (in case of non-stationary)', fontsize=fontsize)
-        ax.set_xticks(x)
-        
-        period_labels = []
-        for period in periods:
-                # 100% / return-period ~ probability
-                period_num = int(period.replace('-year', ''))
-                probability = 100 / period_num 
-                period_labels.append(f'{period} ({probability:.1f}%)')
-        ax.set_xticklabels(period_labels, fontsize=fontsize*0.9)
-                
-        leg = ax.legend(loc=4, edgecolor=axes_color, borderpad=.65, fontsize=fontsize*0.75)
-        leg.get_frame().set_linewidth(.5)
-        
-        ax.grid(True, alpha=0.3, axis='y')
-        
-        for spine in ax.spines.values():
-                spine.set_visible(False)
+    ax.set_xlabel('Return Period', fontsize=fontsize)
+    ax.set_ylabel('Return Level (m)', fontsize=fontsize)
+    ax.set_title('Return Levels Non-Stationary Evolution', fontsize=fontsize)
+    ax.set_xticks(x)
+    
+    period_labels = []
+    for period in periods:
+            # 100% / return-period ~ probability
+            period_num = int(period.replace('-year', ''))
+            probability = 100 / period_num 
+            period_labels.append(f'{period} ({probability:.1f}%)')
+    ax.set_xticklabels(period_labels, fontsize=fontsize*0.9)
+            
+    leg = ax.legend(loc=4, edgecolor=axes_color, borderpad=.65, fontsize=fontsize*0.75)
+    leg.get_frame().set_linewidth(.5)
+    
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    for spine in ax.spines.values():
+            spine.set_visible(False)
 
-        ax.axhline(y=ax.get_ylim()[0], color=axes_color, linewidth=1.2, zorder=10)
-        ax.axvline(x=ax.get_xlim()[0], color=axes_color, linewidth=1.2, zorder=10)
+    ax.axhline(y=ax.get_ylim()[0], color=axes_color, linewidth=1.2, zorder=10)
+    ax.axvline(x=ax.get_xlim()[0], color=axes_color, linewidth=1.2, zorder=10)
 
-        ax.tick_params(axis='x', colors=axes_color)
-        ax.tick_params(axis='y', colors=axes_color)
+    ax.tick_params(axis='x', colors=axes_color)
+    ax.tick_params(axis='y', colors=axes_color)
 
-        ax.grid(True, alpha=0.3, color='lightgrey')
+    ax.grid(True, alpha=0.3, color='lightgrey')
 
 
 def create_parameter_summary(
@@ -252,19 +267,18 @@ def plot_analysis(
     ax_bottom_right = fig.add_subplot(gs[1, 1])
 
     fig.suptitle(
-        f'GEV Analysis: {model} - lat|lon = {str(lat_lon_tuple[0].round(3))}|{str(lat_lon_tuple[1].round(3))} closest point{normalize_location_text(location_info)}', 
+        f'GEV Analysis: {model} - lat|lon = {str(lat_lon_tuple[0].round(3))}|{str(lat_lon_tuple[1].round(3))} closest point {normalize_location_text(location_info)}', 
         fontsize=fontsize*1.25, fontweight='bold'
         )
-    
+
     # ----------------------------------------------------------------------------
     # Plot TOP-LEFT: Annual maxima with trends
-
     plot_annual_max_with_trends(
-        annual_max=annual_max, result=result, nonstat=nonstat, comp=comp,
+        annual_max=annual_max, result=result, nonstat=nonstat, comp=comp, ls_periods=periods_evolution,
         colors_trends=colors_trends, axes_color=axes_color, color_markers=color_markers, 
         linestyle_trends=linestyle_trends, ms=6, fontsize=fontsize, ax=ax_top_left, 
         )
-    
+
     # ----------------------------------------------------------------------------   
     # Plot TOP-RIGHT: GEV parameters summary
     create_parameter_summary(
@@ -273,16 +287,16 @@ def plot_analysis(
         bbox=dict(boxstyle='round', facecolor='#F5F5F5FF', alpha=0.5), 
         fontsize=fontsize*0.7, linespace=linespace, ax=ax_top_right
         )
-        
+
     # ----------------------------------------------------------------------------
     # Plot BOTTOM-LEFT: Return levels evolution
-    if result['return_levels_1960'] and result['return_levels_2019']:
+    if result['return_levels_nonstationary_start'] and result['return_levels_nonstationary_end']:
         plot_level_evolution(
             result=result, periods=periods_evolution, width=width_bar_returns, 
             color_levels=colors_return_levels, fontsize=fontsize, axes_color=axes_color, 
             ax=ax_bottom_left
         )
-        
+
     # ----------------------------------------------------------------------------
     # Plot BOTTOM-RIGHT: Model comparison
     if stat and nonstat and comp:
@@ -292,7 +306,7 @@ def plot_analysis(
             colors_models=colors_models, bbox_color=bbox_color, fontsize=fontsize, 
             leg_x=leg_comparison_x, leg_y=leg_comparison_y, ax=ax_bottom_right
     )
-    
+
     plt.tight_layout()
     
     if save_path:

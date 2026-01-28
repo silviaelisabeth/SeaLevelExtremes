@@ -37,7 +37,8 @@ def extract_annual_maxima_unique(
         .sort_values('year')
     )
 
-def extract_annual_maxima(
+
+def extract_annual_maxima_at_location(
     data_hindcast: DataFrame, lon: float, lat: float, model: Optional[str] = None
     ) -> DataFrame:
     """
@@ -63,8 +64,8 @@ def extract_annual_maxima(
             .sort_values(['sim_year', 'model'])
             .reset_index(drop=True)
             .rename(columns={'sim_year': 'year', 'storm_surge': 'annual_max'})
-            )
-    
+            ).dropna()
+
 
 def fit_stationary_gev(data: ndarray) -> Dict:
     """
@@ -346,7 +347,7 @@ def analyze_location_per_model(
         Complete analysis for one model-location combination.
         Fits both stationary and non-stationary GEV.
         """
-        annual_max = extract_annual_maxima(data_hindcast, model=model, lon=lon, lat=lat)
+        annual_max = extract_annual_maxima_at_location(data_hindcast, model=model, lon=lon, lat=lat)
 
         if len(annual_max) < 10:
                 return None
@@ -397,7 +398,7 @@ def analyze_per_location(
         Complete analysis for one model-location combination.
         Fits both stationary and non-stationary GEV.
         """
-        annual_max = extract_annual_maxima(data_hindcast, lon=lon, lat=lat)
+        annual_max = extract_annual_maxima_at_location(data_hindcast, lon=lon, lat=lat)
         
         if len(annual_max) < 10:
                 return None
