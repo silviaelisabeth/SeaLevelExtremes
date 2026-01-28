@@ -146,13 +146,12 @@ def plot_level_evolution(
             label='start ' + str(result['return_levels_nonstationary_start']['year']), color=color_levels[0]
             )
     
-    if skip_non_stat == True:
-        levels_end = levels_start.copy()
-    bars_end = ax.bar(
-            x + width/2, levels_end, width, 
-            label='end ' + str(result['return_levels_nonstationary_end']['year']),  color=color_levels[1]
-            )
-    
+    if skip_non_stat is False:
+        bars_end = ax.bar(
+                x + width/2, levels_end, width, 
+                label='end ' + str(result['return_levels_nonstationary_end']['year']),  color=color_levels[1]
+                )
+        
     for bar, level in zip(bars_start, levels_start):
             height = bar.get_height()
             ax.text(
@@ -160,12 +159,13 @@ def plot_level_evolution(
                     ha='center', va='bottom', fontsize=fontsize*0.85,
                     )
     
-    for bar, level in zip(bars_end, levels_end):
-            height = bar.get_height()
-            ax.text(
-                    bar.get_x() + bar.get_width()/2., height, f'{level:.2f}m',  
-                    ha='center', va='bottom', fontsize=fontsize*0.85,
-                    )
+    if skip_non_stat is False:
+        for bar, level in zip(bars_end, levels_end):
+                height = bar.get_height()
+                ax.text(
+                        bar.get_x() + bar.get_width()/2., height, f'{level:.2f}m',  
+                        ha='center', va='bottom', fontsize=fontsize*0.85,
+                        )
 
     ax.set_xlabel('Return Period', fontsize=fontsize)
     ax.set_ylabel('Return Level (m)', fontsize=fontsize)
@@ -352,6 +352,7 @@ def plot_pooled_analysis(
         fontsize: float = 9,
         figsize: tuple[float, float] = (15, 8),
         linespace: float = 1.5,
+        display_results: bool = True,
     ):
     """Create comprehensive visualization."""
 
@@ -423,4 +424,5 @@ def plot_pooled_analysis(
         print(f"\t saving GEV analysis to {save_path} as {file_name}")
 
         plt.savefig(save_path+file_name, dpi=300, bbox_inches='tight')
-    plt.show()
+    
+    plt.show() if display_results else plt.close()

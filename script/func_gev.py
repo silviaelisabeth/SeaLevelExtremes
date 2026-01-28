@@ -1,12 +1,16 @@
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, Optional
 
-from numpy import any, exp, full_like, inf, log, ndarray, sum
+import func_plotting as dbplt
+import func_utils as ut
+from IPython.display import Markdown, display
+from numpy import any, exp, full_like, generic, inf, log, ndarray, sum
 from pandas import DataFrame
 from scipy import stats
 from scipy.optimize import minimize
 
 
-# !!!ToDO: check extract_annual_maxima - not again selecting max from the annual max dataset!
 def extract_annual_maxima_unique(
     data_hindcast: DataFrame, lon: float, lat: float, model: Optional[str] = None
     ) -> DataFrame:
@@ -438,5 +442,161 @@ def analyze_per_location(
                     'year': int(years.max()),
                     'values': rl_nonstat_end
                     },
-            'data from model(s)':None,
     }
+
+
+def create_gev_written_report_per_location(
+    result_display: DataFrame, location_in_example: tuple[str, float, float], 
+    ls_messages:list[str], print_msg:bool=True
+    ) -> list[str]:
+    
+    ls_messages = ut.adding_plot_and_text("\n" + "="*100, ls_messages, print_msg)
+    ls_messages = ut.adding_plot_and_text(
+        "POOLED RESULTS for location (lon|lat): "
+        f"{result_display['location'][1]:.5f}|{result_display['location'][0]:.5f}", 
+        ls_messages, print_msg
+        )
+    ls_messages = ut.adding_plot_and_text("="*100, ls_messages, print_msg)
+    
+    ls_messages = ut.adding_plot_and_text(
+        f"\nClosest location identified: {location_in_example}", ls_messages, print_msg
+        )
+    
+    # -------------------------------------------------------------------------
+    ls_messages = ut.adding_plot_and_text(
+        f"Hindcast period: {result_display['annual_maxima'].year.min().astype(int)}-"
+        f"{result_display['annual_maxima'].year.max().astype(int)} "
+        f"({len(result_display['annual_maxima'].year.unique())} unique years)", ls_messages, print_msg
+        )
+    ls_messages = ut.adding_plot_and_text(
+        "Observations per year: ~2 (from ensemble members)", ls_messages, print_msg
+        )
+    ls_messages = ut.adding_plot_and_text(
+        f"Total data points for GEV: {result_display['gev_stationary']['n_obs']}", ls_messages, print_msg
+        )
+    
+    # -------------------------------------------------------------------------
+    ls_messages = ut.adding_plot_and_text("\nSTATIONARY GEV", ls_messages, print_msg)
+    stat = result_display['gev_stationary']
+    ls_messages = ut.adding_plot_and_text(f"  μ (location) = {stat['location']:.3f}", ls_messages, print_msg)
+    ls_messages = ut.adding_plot_and_text(f"  σ (scale) = {stat['scale']:.3f}", ls_messages, print_msg)
+    ls_messages = ut.adding_plot_and_text(f"  ξ (shape) = {stat['shape']:.3f}", ls_messages, print_msg)
+    ls_messages = ut.adding_plot_and_text(f"  Type: {stat['dist_type']}", ls_messages, print_msg)
+    ls_messages = ut.adding_plot_and_text("  Return Level", ls_messages, print_msg)
+    for x, v in result_display['return_levels_stationary'].items():
+        aep = 100/int(x.split('-')[0])
+        ls_messages = ut.adding_plot_and_text(
+            f"  \tFor {x} period: {v:.3f} m ({aep}% annual exceedance probability)", ls_messages, print_msg
+            )
+        
+    # -------------------------------------------------------------------------
+    if result_display['gev_nonstationary']:
+        ls_messages = ut.adding_plot_and_text("\nNON-STATIONARY GEV", ls_messages, print_msg)
+        nonstat = result_display['gev_nonstationary']
+        ls_messages = ut.adding_plot_and_text(
+            f"  μ(t) = {nonstat['mu0']:.3f} + {nonstat['mu1']:.4f}·t", ls_messages, print_msg
+            )
+        ls_messages = ut.adding_plot_and_text(f"  Trend = {nonstat['mu1']:.4f} m/year", ls_messages, print_msg)
+        ls_messages = ut.adding_plot_and_text("  Return Level Evolution", ls_messages, print_msg)
+        for x,y in zip(
+            result_display['return_levels_nonstationary_start']['values'].items(), 
+            result_display['return_levels_nonstationary_end']['values'].items()
+            ):
+
+            period = x[0]
+            aep = 100/int(period.split('-')[0])
+            ls_messages = ut.adding_plot_and_text(
+                f"  \tFor {period} period: {x[1]:.3f}m - {y[1]:.3f}m ({aep}% annual exceedance probability)",
+                ls_messages, print_msg
+            )
+    # -------------------------------------------------------------------------       
+    if result_display['model_comparison']:
+        ls_messages = ut.adding_plot_and_text("\nMODEL COMPARISON", ls_messages, print_msg)
+        comp = result_display['model_comparison']
+        ls_messages = ut.adding_plot_and_text(f"  p-value: {comp['p_value']:.4f}", ls_messages, print_msg)
+        ls_messages = ut.adding_plot_and_text(f"  Decision: {comp['decision']}", ls_messages, print_msg)
+        ls_messages = ut.adding_plot_and_text(f"  → {comp['recommendation']}", ls_messages, print_msg)
+
+    return ls_messages
+
+
+def create_gev_report_per_location(
+    result_location, location_label, plot_period_evolution, export_report:bool=True, path_export:Optional[str]=None, 
+    print_msg:Optional[bool]=False, display_results:Optional[bool]=True
+    ) -> None:
+    ls_messages = []
+    
+    if result_location:
+        display(Markdown(f"""<pre><strong>    Create GEV analysis report for {location_label}...</strong></pre>"""))
+                
+        today_ = str(datetime.today().date().isoformat())
+        country = location_label.split(',')[-1].strip()
+        lat_str = str(round(float(result_location['location'][0]), 3))
+        lon_str = str(round(float(result_location['location'][1]),3))
+        
+        ls_messages = create_gev_written_report_per_location(
+            result_display=result_location, location_in_example=location_label, ls_messages=ls_messages,
+            print_msg=print_msg
+            )
+        
+        if export_report and path_export: 
+            save_path = path_export + today_
+            Path(save_path).mkdir(parents=True, exist_ok=True)  
+            full_file_path = save_path + f"/GEVanalysis_{country}_{lat_str}|{lon_str}_{today_}.parquet"   
+            
+            df_messages = DataFrame({'messages': ls_messages}) 
+            df_messages.to_parquet(full_file_path, index=False)
+            #with open(full_file_path, 'w') as f:
+            #    f.write('\n'.join(ls_messages))
+        else:
+            save_path = None
+            
+        # -----------------------------------------------------------------------------------------------------------
+        dbplt.plot_pooled_analysis(
+            result=result_location, 
+            lat_lon_tuple=result_location['location'], 
+            location_info=result_location['location info'][0],
+            periods_evolution = plot_period_evolution,
+            box_parameters_x=0.05, box_parameters_y=0.95,
+            width_bar_returns=0.35,
+            leg_comparison_x=0.35, leg_comparison_y=0.65, linespace=1.5,
+            save_path = save_path,
+            color_markers='#99E3DDFF', colors_trends='#1D141BFF', 
+            colors_models=['#B887ADFF', '#008A80FF'],
+            colors_return_levels=['#008A80FF','#CAA5C2FF'],
+            bbox_color='#F5F5F5FF', axes_color='#333333', 
+            linestyle_trends=['dashdot', 'dashed', 'solid'], 
+            fontsize=12, figsize=(15, 7.5),
+            display_results=display_results
+        )
+        display(Markdown(f"""<pre><strong>    Report Completed.</strong></pre>"""))
+        return full_file_path
+
+
+def store_report_stationary_gev_per_year(site_data:dict):
+    if 'location info' in site_data:
+        site_data['location info'] = str(site_data['location info'])
+
+    annual_max_path = Path(site_data['file_path_report']).with_name(Path(site_data['file_path_report']).stem + "_data.parquet")
+    site_data['annual_maxima'].to_parquet(annual_max_path, index=False)
+    site_data['file_path_annual_max'] = str(annual_max_path)
+
+    analysis_clean = {}
+    for year, d in site_data['gev_stationary']['analysis_per_year'].items():
+        clean_d = {k: (v.tolist() if isinstance(v, (ndarray, generic)) else v) for k, v in d.items()}
+        analysis_clean[year] = clean_d
+
+    analysis_path = Path(site_data['file_path_report']).with_name(Path(site_data['file_path_report']).stem + "_stat-gev_per_year.parquet")
+    DataFrame.from_dict(analysis_clean, orient='index').to_parquet(analysis_path, index=True)
+    site_data['file_path_analysis_per_year'] = str(analysis_path)
+
+    metadata = {k: v for k, v in site_data.items() if k not in ['annual_maxima', 'gev_stationary']}
+    metadata['gev_stationary'] = {k: v for k, v in site_data['gev_stationary'].items() if k != 'analysis_per_year'}
+
+    for k, v in metadata.items():
+        if not isinstance(v, (str, int, float, bool, dict, list)):
+            metadata[k] = str(v)
+
+    meta_path = Path(site_data['file_path_report']).with_name(Path(site_data['file_path_report']).stem + "_metadata.parquet")
+    DataFrame({'metadata': [metadata]}).to_parquet(meta_path, index=False)
+    site_data['file_path_metadata'] = str(meta_path)

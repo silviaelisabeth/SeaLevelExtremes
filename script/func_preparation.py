@@ -7,6 +7,7 @@ import xarray as xr
 from geopy.exc import GeocoderTimedOut
 from geopy.geocoders import Nominatim
 from geopy.location import Location
+from joblib import Parallel, delayed
 from numpy import allclose
 from pandas import DataFrame, MultiIndex
 from tqdm import tqdm
@@ -305,3 +306,25 @@ def sites_to_location(da):
     da = da.drop_vars("sites")
 
     return da
+
+
+def process_model(file):
+    model_name, ds_model = import_data_from_file(file) 
+    ds_model_corrected = bias_correction(ds_model)
+    data_valid, sites_valid, sites_total, rate_invalid = select_valid_data(
+        ds_model, ds_model_corrected
+    )
+    ds_model.close()
+    return model_name, data_valid, (sites_valid, sites_total, rate_invalid)
+
+
+def data_preparation(ls_files:list[str], dic_data_per_model:dict) -> dict:
+    results = Parallel(n_jobs=4)(
+        delayed(process_model)(file) for file in ls_files
+    )
+
+    for model_name, data_valid, prep_info in results:
+        dic_data_per_model[model_name]['valid data'] = data_valid
+        dic_data_per_model[model_name]['preparation info'] = prep_info
+    return dic_data_per_model
+
