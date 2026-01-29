@@ -1,10 +1,14 @@
 import logging
 import os
+import pickle
 import sys
+from datetime import datetime
+from glob import glob
 from typing import Optional
 
+import func_plotting as dbplt
 from numpy import isnan, unique
-from pandas import DataFrame, MultiIndex
+from pandas import DataFrame, read_parquet
 
 
 def initialize_logger(log_filename, log_dir:str="../logs"):
@@ -39,7 +43,6 @@ def initialize_logger(log_filename, log_dir:str="../logs"):
     sys.stderr = PrintLogger()
 
     return orig_stdout, orig_stderr, fh, logger, log_path
-
 
 
 def adding_plot_and_text(message, ls_messages, print_msg):
@@ -149,3 +152,83 @@ def create_data_overview(dic_data_per_model:dict,ls_files:list[str]) -> None:
         f"\n\t - between {min(sim_year_per_model_min)}-{max(sim_year_per_model_max)}"
         )
 
+
+def save_report_location_results(location_id:int, result_location:dict, base_dir:str) -> str:
+    today_ = str(datetime.today().date().isoformat())
+    
+    loc_dir = os.path.join(base_dir + str(today_), f"location_{location_id}")
+    os.makedirs(loc_dir, exist_ok=True)
+    
+    for k, v in result_location.items():
+        if isinstance(v, DataFrame):
+            v.to_parquet(os.path.join(loc_dir, f"{k}.parquet"))
+        else:
+            with open(os.path.join(loc_dir, f"{k}.pkl"), "wb") as f:
+                pickle.dump(v, f, protocol=5)
+    return loc_dir
+
+
+def save_location_results(
+    location_id:int, result_location:dict, base_dir:str, plot_period_evolution:list[str], display_results:bool, 
+    ) -> str:
+    loc_dir = save_report_location_results(
+        location_id=location_id, result_location=result_location, base_dir=base_dir
+        )
+    
+    print('export path:', loc_dir)
+    dbplt.plot_pooled_analysis(
+        result=result_location, 
+        site_id=location_id, 
+        periods_evolution = plot_period_evolution, 
+        save_path=loc_dir,
+        box_parameters_x=0.05, box_parameters_y=0.95, width_bar_returns=0.35,
+        leg_comparison_x=0.35, leg_comparison_y=0.65, linespace=1.5,
+        color_markers='#99E3DDFF', colors_trends='#1D141BFF', 
+        colors_models=['#B887ADFF', '#008A80FF'],
+        colors_return_levels=['#008A80FF','#CAA5C2FF'],
+        bbox_color='#F5F5F5FF', axes_color='#333333', 
+        linestyle_trends=['dashdot', 'dashed', 'solid'], 
+        fontsize=12, figsize=(15, 7.5),
+        display_results=display_results
+        )
+    
+    return loc_dir
+
+
+def get_all_location_folders(path_import: str) -> list[str]:
+    ls_location_folders = []
+
+    for parent in glob(os.path.join(path_import, "*")):
+        if os.path.isdir(parent):
+            for loc in glob(os.path.join(parent, "*")):
+                if os.path.isdir(loc):
+                    ls_location_folders.append(loc)
+
+    return ls_location_folders 
+
+
+def load_location_results(location_id: int, base_dir: str) -> dict:
+    loc_dir = os.path.join(base_dir, f"location_{location_id}")
+    results = {}
+    for f in os.listdir(loc_dir):
+        path = os.path.join(loc_dir, f)
+        if f.endswith(".parquet"):
+            results[f.replace(".parquet","")] = read_parquet(path)
+        elif f.endswith(".pkl"):
+            with open(path, "rb") as fd:
+                results[f.replace(".pkl","")] = pickle.load(fd)
+    return results
+
+
+def import_results_from_files(path_export: str) -> dict:
+    results = {}
+    ls_location_folders = get_all_location_folders(path_import=path_export)
+
+    for location_files in ls_location_folders:
+        location_id = int(location_files.split('location_')[-1])
+        base_dir = '/'.join(location_files.split('/')[:-1])
+        result_loaded = load_location_results(location_id=location_id, base_dir=base_dir)
+        result_loaded['file location'] = location_files
+        results[location_id] = result_loaded
+    
+    return results

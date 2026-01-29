@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
@@ -344,6 +345,38 @@ def calculate_return_levels(
     return return_levels
 
 
+def execute_and_store_stat_gev_per_year(results: dict, store_results:bool) -> dict:
+    for site_id in results.keys():
+        grp_per_year = results[site_id]['data'].groupby('year')
+
+        print(f"Conducting stationary GEV for siteID {site_id} grouped per year...")
+
+        results_stat_per_year_at_location = dict()
+        for year, group in grp_per_year:
+            print(f"\t...{int(year)}", end="\r") 
+
+            data = (group
+                    .sort_values('year')
+                    .reset_index(drop=True)
+                    .rename(columns={'storm_surge': 'annual_max'})
+                    .dropna())
+            annual_max_for_year = data['annual_max'].values
+            
+            gev_stationary = fit_stationary_gev(annual_max_for_year)
+            results_stat_per_year_at_location[int(year)] = gev_stationary
+        print("\nDone!\n") 
+
+        df_stat_gev_per_year = DataFrame.from_dict(results_stat_per_year_at_location).T
+        results[site_id]['fit results']['gev_stationary']['analysis_per_year'] = df_stat_gev_per_year
+        
+        if store_results:
+            df_stat_gev_per_year.to_parquet(
+                os.path.join(results[site_id]['file location'], f"statGEV_per_year.parquet")
+                )
+                
+    return results
+
+
 def analyze_location_per_model(
     data_hindcast:DataFrame, model: str, lat: float, lon: float, location_info: str, return_periods: list
     )-> Dict:
@@ -396,7 +429,7 @@ def analyze_location_per_model(
 
 
 def analyze_per_location(
-    data_hindcast:DataFrame, lat: float, lon: float, location_info: str, return_periods: list
+    data_hindcast:DataFrame, site_id: int, lat: float, lon: float, location_info: str, return_periods: list
     )-> dict:
     """
     Complete analysis for one model-location combination.
@@ -427,33 +460,30 @@ def analyze_per_location(
             gev_nonstat_loc, return_periods, year=years.max()
     ) if gev_nonstat_loc else None
 
-    return {'location': (lat, lon),
-            'location info': location_info,
-            'annual_maxima': annual_max,
-            'gev_stationary': gev_stationary,
-            'gev_nonstationary': gev_nonstat_loc,
+    return {'location info': {'site_id': site_id, 'lat': lat, 'lon': lon, 'description': location_info},
+            'hindcast period': (int(annual_max.year.min()), int(annual_max.year.max())), 
+            'data': annual_max,
+            'fit results': {
+                'gev_stationary': gev_stationary, 
+                'gev_nonstationary': gev_nonstat_loc, 
+                },
             'model_comparison': comparison,
-            'return_levels_stationary': rl_stationary,
-            'return_levels_nonstationary_start': {
-                    'year': int(years.min()),
-                    'values': rl_nonstat_start
-                    },
-            'return_levels_nonstationary_end': {
-                    'year': int(years.max()),
-                    'values': rl_nonstat_end
-                    },
+            'return_levels': {
+                'stationary': rl_stationary,
+                'nonstationary_start': {'year': int(years.min()), 'values': rl_nonstat_start},
+                'nonstationary_end': {'year': int(years.max()),'values': rl_nonstat_end},
+                }
     }
 
 
 def create_gev_written_report_per_location(
-    result_display: DataFrame, location_in_example: tuple[str, float, float], 
-    ls_messages:list[str], print_msg:bool=True
+    result_location: dict, location_in_example: tuple[str, float, float], ls_messages:list[str], print_msg:bool=True
     ) -> list[str]:
     
     ls_messages = ut.adding_plot_and_text("\n" + "="*100, ls_messages, print_msg)
     ls_messages = ut.adding_plot_and_text(
         "POOLED RESULTS for location (lon|lat): "
-        f"{result_display['location'][1]:.5f}|{result_display['location'][0]:.5f}", 
+        f"{result_location['location info']['lon']:.5f}|{result_location['location info']['lat']:.5f}", 
         ls_messages, print_msg
         )
     ls_messages = ut.adding_plot_and_text("="*100, ls_messages, print_msg)
@@ -464,43 +494,44 @@ def create_gev_written_report_per_location(
     
     # -------------------------------------------------------------------------
     ls_messages = ut.adding_plot_and_text(
-        f"Hindcast period: {result_display['annual_maxima'].year.min().astype(int)}-"
-        f"{result_display['annual_maxima'].year.max().astype(int)} "
-        f"({len(result_display['annual_maxima'].year.unique())} unique years)", ls_messages, print_msg
+        f"Hindcast period: {result_location['hindcast period'][0]}-{result_location['hindcast period'][1]} "
+        f"({len(result_location['data'].year.unique())} unique years)", ls_messages, print_msg
         )
     ls_messages = ut.adding_plot_and_text(
         "Observations per year: ~2 (from ensemble members)", ls_messages, print_msg
         )
     ls_messages = ut.adding_plot_and_text(
-        f"Total data points for GEV: {result_display['gev_stationary']['n_obs']}", ls_messages, print_msg
+        f"Total data points for GEV: {result_location['fit results']['gev_stationary']['n_obs']}", ls_messages, 
+        print_msg
         )
     
     # -------------------------------------------------------------------------
     ls_messages = ut.adding_plot_and_text("\nSTATIONARY GEV", ls_messages, print_msg)
-    stat = result_display['gev_stationary']
+    stat = result_location['fit results']['gev_stationary']
     ls_messages = ut.adding_plot_and_text(f"  μ (location) = {stat['location']:.3f}", ls_messages, print_msg)
     ls_messages = ut.adding_plot_and_text(f"  σ (scale) = {stat['scale']:.3f}", ls_messages, print_msg)
     ls_messages = ut.adding_plot_and_text(f"  ξ (shape) = {stat['shape']:.3f}", ls_messages, print_msg)
     ls_messages = ut.adding_plot_and_text(f"  Type: {stat['dist_type']}", ls_messages, print_msg)
     ls_messages = ut.adding_plot_and_text("  Return Level", ls_messages, print_msg)
-    for x, v in result_display['return_levels_stationary'].items():
+    
+    for x, v in result_location['return_levels']['stationary'].items():
         aep = 100/int(x.split('-')[0])
         ls_messages = ut.adding_plot_and_text(
             f"  \tFor {x} period: {v:.3f} m ({aep}% annual exceedance probability)", ls_messages, print_msg
             )
         
     # -------------------------------------------------------------------------
-    if result_display['gev_nonstationary']:
+    if result_location['fit results']['gev_nonstationary']:
         ls_messages = ut.adding_plot_and_text("\nNON-STATIONARY GEV", ls_messages, print_msg)
-        nonstat = result_display['gev_nonstationary']
+        nonstat = result_location['fit results']['gev_nonstationary']
         ls_messages = ut.adding_plot_and_text(
             f"  μ(t) = {nonstat['mu0']:.3f} + {nonstat['mu1']:.4f}·t", ls_messages, print_msg
             )
         ls_messages = ut.adding_plot_and_text(f"  Trend = {nonstat['mu1']:.4f} m/year", ls_messages, print_msg)
         ls_messages = ut.adding_plot_and_text("  Return Level Evolution", ls_messages, print_msg)
         for x,y in zip(
-            result_display['return_levels_nonstationary_start']['values'].items(), 
-            result_display['return_levels_nonstationary_end']['values'].items()
+            result_location['return_levels']['nonstationary_start']['values'].items(), 
+            result_location['return_levels']['nonstationary_end']['values'].items()
             ):
 
             period = x[0]
@@ -510,9 +541,9 @@ def create_gev_written_report_per_location(
                 ls_messages, print_msg
             )
     # -------------------------------------------------------------------------       
-    if result_display['model_comparison']:
+    if result_location['model_comparison']:
         ls_messages = ut.adding_plot_and_text("\nMODEL COMPARISON", ls_messages, print_msg)
-        comp = result_display['model_comparison']
+        comp = result_location['model_comparison']
         ls_messages = ut.adding_plot_and_text(f"  p-value: {comp['p_value']:.4f}", ls_messages, print_msg)
         ls_messages = ut.adding_plot_and_text(f"  Decision: {comp['decision']}", ls_messages, print_msg)
         ls_messages = ut.adding_plot_and_text(f"  → {comp['recommendation']}", ls_messages, print_msg)
@@ -521,12 +552,15 @@ def create_gev_written_report_per_location(
 
 
 def create_gev_report_per_location(
-    result_location, location_label, plot_period_evolution, export_report:bool=True, path_export:Optional[str]=None, 
+    result_location: dict, plot_period_evolution:list[str], export_report:bool=True, path_export:Optional[str]=None, 
     print_msg:Optional[bool]=False, display_results:Optional[bool]=True
     ) -> None:
     ls_messages = []
     
     if result_location:
+        location_info = result_location['location info']
+        location_label = location_info['description'][0]
+        
         display(Markdown(f"""<pre><strong>    Create GEV analysis report for {location_label}...</strong></pre>"""))
                 
         today_ = str(datetime.today().date().isoformat())
