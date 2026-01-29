@@ -6,7 +6,9 @@ from datetime import datetime
 from glob import glob
 from typing import Optional
 
+import func_gev as gev
 import func_plotting as dbplt
+import func_preparation as dbf
 from numpy import isnan, unique
 from pandas import DataFrame, read_parquet
 
@@ -232,3 +234,12 @@ def import_results_from_files(path_export: str) -> dict:
         results[location_id] = result_loaded
     
     return results
+
+
+def hex_to_rgba(hex_color):
+    hex_color = hex_color.lstrip('#')
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    a = int(hex_color[6:8], 16) if len(hex_color) == 8 else 255
+    return [r, g, b, a]

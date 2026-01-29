@@ -3,8 +3,12 @@ from pathlib import Path
 from typing import Optional
 
 import arabic_reshaper
+import func_gev as gev
+import func_preparation as dbf
+import func_utils as ut
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
+import pydeck as pdk
 import seaborn as sns
 from bidi.algorithm import get_display
 from matplotlib import rcParams
@@ -19,6 +23,64 @@ rcParams['font.family'] = [
     'Noto Sans Devanagari'
 ]
 sns.set_style('whitegrid')
+
+
+def create_map_location_missing_valid_data(
+    missing_locations:DataFrame, df_valid:DataFrame, radius_marker_m:int=3500, 
+    color_missing:str='#980019FF', color_valid:str='#7BAA80FF',
+    dir_export:str='../output/exploration', store_map:bool=False, display_map:bool=False
+    ):
+    from IPython.display import display
+
+    missing_locations['info'] = "Missing data"
+
+    layer_missing = pdk.Layer(
+        "ScatterplotLayer",
+        data=missing_locations,
+        get_position='[lon, lat]',
+        get_radius=radius_marker_m,
+        radius_scale=1,
+        radius_min_pixels=1,  
+        radius_max_pixels=7,  
+        get_fill_color=ut.hex_to_rgba(color_missing),
+        pickable=True,  
+    )
+
+    layer_valid = pdk.Layer(
+        "ScatterplotLayer",
+        data=df_valid,
+        get_position='[lon, lat]',
+        get_radius=radius_marker_m,
+        radius_scale=1,
+        radius_min_pixels=1,  
+        radius_max_pixels=7,  
+        get_fill_color=ut.hex_to_rgba(color_valid),
+        pickable=True,
+    )
+
+    view_state = pdk.ViewState(
+        latitude=missing_locations['lat'].mean(),
+        longitude=missing_locations['lon'].mean(),
+        zoom=4
+    )
+
+    deck = pdk.Deck(
+        layers=[layer_valid, layer_missing],
+        initial_view_state=view_state,
+        map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+        tooltip={"text": "Lat: {lat}\nLon: {lon}\nInfo: {info}"}
+    )
+
+    if store_map:
+        deck.to_html(
+            dir_export + "/missing_valid_map.html",
+            notebook_display=False, 
+            open_browser=False
+        )
+    if display_map:
+        display(deck)
+
+    print("Map saved as missing_valid_map.html! You can open it in your browser and interact with it.")
 
 
 def contains_arabic(text: str) -> bool:
@@ -595,4 +657,6 @@ def plot_gev_mu_trend(
     plt.tight_layout()
     plt.show() if display_results else plt.close()
 
+    return fig
+    return fig
     return fig

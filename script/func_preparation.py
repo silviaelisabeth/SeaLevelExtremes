@@ -2,14 +2,19 @@ import pickle
 import random
 from pathlib import Path
 from time import sleep
+from typing import Optional, Tuple
 
+import func_gev as gev
+import func_plotting as dbplt
+import func_utils as ut
+import reverse_geocoder as rg
 import xarray as xr
 from geopy.exc import GeocoderTimedOut
 from geopy.geocoders import Nominatim
 from geopy.location import Location
 from joblib import Parallel, delayed
-from numpy import allclose
-from pandas import DataFrame, MultiIndex
+from numpy import allclose, ndarray
+from pandas import DataFrame, MultiIndex, concat
 from tqdm import tqdm
 
 #!!!ToDo: adding typing, remove unused functions...
@@ -265,6 +270,35 @@ def locations_label_lookup_simple(lat: float, lon: float):
     return location
 
 
+def add_location_labels(locations: DataFrame) -> DataFrame:
+    """
+    Add city/admin/country labels to a DataFrame of lat/lon points using reverse_geocoder (offline).
+
+    Args:
+        locations (DataFrame): Must have 'lat' and 'lon' columns.
+
+    Returns:
+        DataFrame: Original DataFrame with additional columns: 'city', 'admin1', 'country'
+    """
+    if not {'lat', 'lon'}.issubset(locations.columns):
+        raise ValueError("Input DataFrame must have 'lat' and 'lon' columns.")
+
+    coords = list(zip(locations['lat'], locations['lon']))
+    
+    results = rg.search(coords) 
+    df_labels = DataFrame(results)
+    
+    df_labels = df_labels.rename(columns={
+        'name': 'city',
+        'admin1': 'admin1',
+        'cc': 'country'
+    })
+    
+    locations_labeled = concat([locations.reset_index(drop=True), df_labels[['city','admin1','country']]], axis=1)
+    
+    return locations_labeled
+
+
 def prepare_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> DataFrame:
         """Calculate target years and filter to hindcast period."""
         data['target_year'] = data['sim_year'] + data['lead']
@@ -328,3 +362,46 @@ def data_preparation(ls_files:list[str], dic_data_per_model:dict) -> dict:
         dic_data_per_model[model_name]['preparation info'] = prep_info
     return dic_data_per_model
 
+
+def get_location_w_missing_data(
+    model_label:str, 
+    dic_data_per_model: dict[str, dict[str, DataFrame]],
+    combined: ndarray  
+) -> Tuple[DataFrame, DataFrame]:
+    df_geocoordinates_raw = DataFrame([
+        dic_data_per_model[model_label]['raw data'].lat.values,
+        dic_data_per_model[model_label]['raw data'].lon.values
+        ], index=['lat', 'lon']).T
+
+
+    df_geocoordinates_combined = DataFrame(
+        [combined[0,0,0, :].lat.values, combined[0,0,0, :].lon.values], 
+        index=['lat', 'lon']).T
+    
+    missing_locations = DataFrame(
+        (
+            set(zip(df_geocoordinates_raw['lat'], df_geocoordinates_raw['lon'])) 
+            - set(zip(df_geocoordinates_combined['lat'], df_geocoordinates_combined['lon']))), 
+        columns=['lat', 'lon']
+        )
+    
+    return missing_locations, df_geocoordinates_combined
+    return missing_locations, df_geocoordinates_combined
+
+
+def create_summary_location_w_missing_data(dic_data_per_model, combined, dir_export:Optional[str]):
+    model_label = list(dic_data_per_model.keys())[0]
+
+    missing_locations, df_valid = get_location_w_missing_data(model_label, dic_data_per_model, combined)
+    
+    df_missing_location = add_location_labels(missing_locations)
+    df_missing_location = df_missing_location.sort_values('country')[['country', 'city', 'admin1', 'lat', 'lon']]
+    
+    if dir_export:
+        df_missing_location.to_csv(dir_export + 'missing_locations_summary.txt', sep='\t', index=False)
+        
+        dbplt.create_map_location_missing_valid_data(
+            missing_locations=missing_locations, df_valid=df_valid, 
+            dir_export=dir_export, store_map=True, display_map=False
+            )
+    return df_missing_location
