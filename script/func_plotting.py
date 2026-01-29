@@ -9,6 +9,7 @@ import seaborn as sns
 from bidi.algorithm import get_display
 from matplotlib import rcParams
 from numpy import any, arange, linspace
+from pandas import DataFrame
 
 rcParams['font.family'] = [
     'Noto Sans',
@@ -40,7 +41,7 @@ def normalize_location_text(text: str) -> str:
 
 
 def plot_annual_max_with_trends(
-    ax, annual_max, result, nonstat, comp, return_levels, colors_trends, linestyle_trends, 
+    ax, annual_max, nonstat, comp, return_levels, colors_trends, linestyle_trends, 
     axes_color, color_markers='#99E3DDFF', ms=6, fontsize=10, ls_periods: list = ['10-year', '50-year', '100-year']
     ):
     skip_non_stat = False
@@ -283,8 +284,8 @@ def plot_analysis(
     # ----------------------------------------------------------------------------
     # Plot TOP-LEFT: Annual maxima with trends
     skip_non_stat = plot_annual_max_with_trends(
-        annual_max=annual_max, result=result, nonstat=nonstat, comp=comp, ls_periods=periods_evolution,
-        colors_trends=colors_trends, axes_color=axes_color, color_markers=color_markers, 
+        annual_max=annual_max, return_levels=result['return_levels'], nonstat=nonstat, comp=comp, 
+        ls_periods=periods_evolution, colors_trends=colors_trends, axes_color=axes_color, color_markers=color_markers, 
         linestyle_trends=linestyle_trends, ms=6, fontsize=fontsize, ax=ax_top_left, 
         )
 
@@ -379,7 +380,7 @@ def plot_pooled_analysis(
     # ----------------------------------------------------------------------------
     # Plot TOP-LEFT: Annual maxima with trends        
     skip_non_stat = plot_annual_max_with_trends(
-        annual_max=annual_max, result=result, nonstat=nonstat, comp=comp, return_levels=result['return_levels'],
+        annual_max=annual_max, return_levels=result['return_levels'], nonstat=nonstat, comp=comp,
         ls_periods=periods_evolution, colors_trends=colors_trends, axes_color=axes_color, color_markers=color_markers, 
         linestyle_trends=linestyle_trends, ms=6, fontsize=fontsize, ax=ax_top_left, 
         )
@@ -416,12 +417,58 @@ def plot_pooled_analysis(
     
     if save_path:
         Path(save_path).mkdir(parents=True, exist_ok=True)
-        time_date = datetime.today().date().isoformat()
         country = location_info['description'][0].split(',')[-1].strip()
     
-        file_name = f"/GEVanalysis_pooled_{str(site_id)}_{country}_{lat}|{lon}_{time_date}.png"
+        file_name = f"/GEVanalysis_pooled_{str(site_id)}_{country}_{lat}|{lon}.png"
         print(f"\t saving GEV analysis to {save_path} as {file_name}")
 
         plt.savefig(save_path+file_name, dpi=300, bbox_inches='tight')
     
     plt.show() if display_results else plt.close()
+
+
+def plot_gev_mu_trend(
+    df:DataFrame,
+    weights:list,
+    year_grid,
+    y_pred,
+    wls_delta,
+    display_results: bool = True,
+    fontsize: float = 11,
+    figsize: tuple[float, float] = (13, 3.5), 
+    axes_color = '#333333'   
+    ):
+    
+    intercept, slope = wls_delta.params
+    
+    fig, ax = plt.subplots(figsize=figsize)
+
+    ax.scatter(df.year, df.location.astype(float), s=weights/1000, alpha=0.6, label='Annual estimates') 
+    ax.plot(
+        year_grid, y_pred, 
+        color='black', 
+        label=f'WLS fit (delta-method) \nslope={slope:.4f}, intercept={intercept:.4f}'
+        )
+
+    leg = ax.legend(loc=0, edgecolor=axes_color, borderpad=.65, fontsize=fontsize*0.75)
+    leg.get_frame().set_linewidth(.5)
+        
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    ax.axhline(y=ax.get_ylim()[0], color=axes_color, linewidth=1.2, zorder=10)
+    ax.axvline(x=ax.get_xlim()[0], color=axes_color, linewidth=1.2, zorder=10)
+
+    ax.tick_params(axis='x', colors=axes_color)
+    ax.tick_params(axis='y', colors=axes_color)
+
+    ax.grid(True, alpha=0.3, color='lightgrey')
+    ax.set_title('GEV μ Trend with Fixed Scale & Shape', fontsize=fontsize*1.25)
+    ax.set_xlabel('Year', fontsize=fontsize)
+    ax.set_ylabel('GEV location parameter', fontsize=fontsize)
+
+    plt.tight_layout()
+    
+    plt.show() if display_results else plt.close()
+    
+    return fig

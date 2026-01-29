@@ -5,8 +5,10 @@ from typing import Dict, Optional
 
 import func_plotting as dbplt
 import func_utils as ut
+import statsmodels.api as sm
 from IPython.display import Markdown, display
-from numpy import any, exp, full_like, generic, inf, log, ndarray, sum
+from numpy import (any, exp, full_like, generic, inf, linspace, log, ndarray,
+                   sum)
 from pandas import DataFrame
 from scipy import stats
 from scipy.optimize import minimize
@@ -375,6 +377,24 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool) -> di
                 )
                 
     return results
+
+
+def weighted_least_square_regression_annual_location(global_statgev_scale, global_statgev_shape, df):
+    df['var_mu'] = (global_statgev_scale ** 2) / df.n_obs.astype(int) * 1 / (1 - global_statgev_shape) ** 2
+    weights = 1.0 / df.var_mu.values
+
+    year_mean = df['year'].mean()
+    X = sm.add_constant(df['year'] - year_mean)  # centered
+    y = df.location.astype(float)
+
+    wls_delta = sm.WLS(y, X, weights=weights).fit()
+    
+    
+    year_grid = linspace(df['year'].min(), df['year'].max(), 200)
+    X_pred = sm.add_constant(year_grid - year_mean)  
+    y_pred = wls_delta.predict(X_pred)
+
+    return wls_delta, weights, y_pred, year_grid
 
 
 def analyze_location_per_model(
