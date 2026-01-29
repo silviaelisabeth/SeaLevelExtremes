@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from bidi.algorithm import get_display
 from matplotlib import rcParams
-from numpy import any, arange, linspace
+from numpy import any, arange, array, linspace, ndarray, sqrt
 from pandas import DataFrame
 
 rcParams['font.family'] = [
@@ -427,27 +427,45 @@ def plot_pooled_analysis(
     plt.show() if display_results else plt.close()
 
 
-def plot_gev_mu_trend(
+def plot_gev_mu_trend_without_ci(
     df:DataFrame,
     weights:list,
     year_grid,
+    year_mean,
     y_pred,
     wls_delta,
+    nonstat_intercept,
+    nonstat_slope, 
     display_results: bool = True,
     fontsize: float = 11,
     figsize: tuple[float, float] = (13, 3.5), 
-    axes_color = '#333333'   
+    axes_color:str = '#333333',
+    markers_color:str='#99E3DDFF',  
     ):
     
     intercept, slope = wls_delta.params
     
+    mask = df['location'].notna() & df['var_mu'].notna()
+    df_plot = df[mask].copy()
+    weights_plot = weights[mask]
+
+    # ----------------------------------------------------------------------------
     fig, ax = plt.subplots(figsize=figsize)
 
-    ax.scatter(df.year, df.location.astype(float), s=weights/1000, alpha=0.6, label='Annual estimates') 
+    ax.scatter(
+        df_plot['year'], df_plot['location'], s=weights_plot/1000, 
+        alpha=0.6, c=markers_color, label='Annual estimates'
+        ) 
     ax.plot(
         year_grid, y_pred, 
         color='black', 
-        label=f'WLS fit (delta-method) \nslope={slope:.4f}, intercept={intercept:.4f}'
+        label=f'WLS fit (delta-method) \nslope={slope:.5f}, intercept={intercept:.4f} (year centered {int(year_mean)})'
+        )
+    ax.plot(
+        year_grid, nonstat_intercept+nonstat_slope*((year_grid - year_mean)/df['year'].std()), 
+        color='black', 
+        ls='--',
+        label=f'Non-stationary MLE \nslope={nonstat_slope:.5f}, intercept={nonstat_intercept:.4f}'
         )
 
     leg = ax.legend(loc=0, edgecolor=axes_color, borderpad=.65, fontsize=fontsize*0.75)
@@ -471,4 +489,110 @@ def plot_gev_mu_trend(
     
     plt.show() if display_results else plt.close()
     
+    return fig
+
+
+def plot_gev_mu_trend(
+    df: DataFrame,
+    weights: list,
+    year_grid: ndarray,
+    year_mean: float,
+    y_pred: ndarray,
+    wls_delta,
+    nonstat_years: array,
+    nonstat_ci: dict,
+    display_results: bool = True,
+    fontsize: float = 11,
+    figsize: tuple[float, float] = (13, 3.5), 
+    axes_color: str = '#333333',
+    markers_color: str = "#99E3DDFF",
+    colors_reg: list = ['#333333FF', '#7F6C7BFF']  
+):
+    """
+    Plot GEV μ trend per location with WLS delta-method fit and optional non-stationary MLE comparison.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Annual μ estimates with columns 'year', 'location', and 'var_mu'
+    weights : array-like
+        Weights used in WLS (1/Var(μ))
+    year_grid : np.ndarray
+        Fine grid of years for prediction
+    year_mean : float
+        Mean of years used for centering in WLS
+    y_pred : np.ndarray
+        Predicted μ from WLS at year_grid
+    wls_delta : WLSResults
+        Fitted WLS delta-method object
+    nonstat_intercept : float
+        Intercept from non-stationary MLE μ(t)
+    nonstat_slope : float
+        Slope from non-stationary MLE μ(t)
+    display_results : bool
+        Whether to show the plot
+    fontsize : float
+        Font size for labels
+    figsize : tuple
+        Figure size
+    axes_color : str
+        Axis color
+    markers_color : str
+        Marker color for annual estimates
+    """
+
+    intercept, slope = wls_delta.params
+
+    mask = df['location'].notna() & df['var_mu'].notna()
+    df_plot = df[mask].copy()
+    weights_plot = array(weights)[mask]
+
+    # annual stationary GEV - CI
+    cov = wls_delta.cov_params().values  
+    t_centered = year_grid - year_mean
+    pred_var_t = cov[0,0] + t_centered**2 * cov[1,1] + 2 * t_centered * cov[0,1]
+    pred_std_t = sqrt(pred_var_t)
+    y_upper = y_pred + 1.96 * pred_std_t
+    y_lower = y_pred - 1.96 * pred_std_t
+    
+    # ----------------------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=figsize)
+
+    ax.scatter(
+        df_plot['year'], df_plot['location'], s=weights_plot/1000, 
+        alpha=0.6, c=markers_color, label='Annual estimates'
+    ) 
+
+    ax.plot(
+        year_grid, y_pred, color='black', 
+        label=f'WLS fit (delta-method)\nslope={slope:.5f}, intercept={intercept:.4f} (year centered {int(year_mean)})'
+    )
+
+    ax.fill_between(year_grid, y_lower, y_upper, color=colors_reg[0], alpha=0.15, label='95% CI (WLS)')
+    ax.fill_between(
+        nonstat_years, nonstat_ci['mu_lower'], nonstat_ci['mu_upper'], color=colors_reg[1], 
+        alpha=0.15, label='95% CI (non-stationary)'
+        )
+
+
+    leg = ax.legend(loc=0, edgecolor=axes_color, borderpad=.65, fontsize=fontsize*0.75)
+    leg.get_frame().set_linewidth(.5)
+
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    ax.axhline(y=ax.get_ylim()[0], color=axes_color, linewidth=1.2, zorder=10)
+    ax.axvline(x=ax.get_xlim()[0], color=axes_color, linewidth=1.2, zorder=10)
+
+    ax.tick_params(axis='x', colors=axes_color)
+    ax.tick_params(axis='y', colors=axes_color)
+
+    ax.grid(True, alpha=0.3, color='lightgrey')
+    ax.set_title('GEV μ Trend with Fixed Scale & Shape', fontsize=fontsize*1.25)
+    ax.set_xlabel('Year', fontsize=fontsize)
+    ax.set_ylabel('GEV location parameter', fontsize=fontsize)
+
+    plt.tight_layout()
+    plt.show() if display_results else plt.close()
+
     return fig

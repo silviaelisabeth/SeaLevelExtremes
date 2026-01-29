@@ -228,7 +228,7 @@ def import_results_from_files(path_export: str) -> dict:
         location_id = int(location_files.split('location_')[-1])
         base_dir = '/'.join(location_files.split('/')[:-1])
         result_loaded = load_location_results(location_id=location_id, base_dir=base_dir)
-        result_loaded['file location'] = location_files
+        result_loaded['file_path_report'] = location_files
         results[location_id] = result_loaded
     
     return results

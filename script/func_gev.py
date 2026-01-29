@@ -7,11 +7,12 @@ import func_plotting as dbplt
 import func_utils as ut
 import statsmodels.api as sm
 from IPython.display import Markdown, display
-from numpy import (any, exp, full_like, generic, inf, linspace, log, ndarray,
-                   sum)
-from pandas import DataFrame
+from numpy import (any, array, exp, finfo, full_like, generic, inf, linalg,
+                   linspace, log, ndarray, ones_like, sqrt, sum, vstack, zeros)
+from pandas import DataFrame, to_numeric
 from scipy import stats
-from scipy.optimize import minimize
+from scipy.optimize import approx_fprime, minimize
+from scipy.stats import norm
 
 
 def extract_annual_maxima_unique(
@@ -229,6 +230,8 @@ def fit_nonstationary_gev(
         aic = 2 * n_params - 2 * ll
         bic = log(len(data)) * n_params - 2 * ll
         
+        # adding confidence interval to location calculation
+        mu_pred, mu_lower, mu_upper = compute_mle_ci([mu0, mu1, sigma, xi], years, data)
         params_out.update({
             'n_obs': len(data),
             'log_likelihood': ll,
@@ -237,6 +240,7 @@ def fit_nonstationary_gev(
             'years_mean': years.mean(),
             'years_std': years.std()
         })
+        params_out.update({'CI': {'mu_pred': mu_pred, 'mu_lower': mu_lower, 'mu_upper': mu_upper}})
         
         return params_out
         
@@ -347,6 +351,65 @@ def calculate_return_levels(
     return return_levels
 
 
+def compute_mle_ci(params, years, data, trend_params='location', alpha=0.05):
+    """
+    Compute 95% CI for μ(t) from non-stationary GEV via delta method.
+    """
+    t = (years - years.mean()) / years.std()
+    
+    # Negative log-likelihood function (reuse your code)
+    def neg_log_likelihood_local(p):
+        if trend_params == 'location':
+            mu0, mu1, sigma, xi = p
+            mu_t = mu0 + mu1 * t
+            sigma_t = full_like(t, sigma)
+        else:
+            raise NotImplementedError("CI for scale/both not yet implemented")
+        if any(sigma_t <= 0):
+            return inf
+        z = (data - mu_t) / sigma_t
+        if abs(xi) < 1e-10:
+            ll = -sum(log(sigma_t)) - sum(z) - sum(exp(-z))
+        else:
+            term = 1 + xi * z
+            if any(term <= 0):
+                return inf
+            ll = -sum(log(sigma_t)) - (1 + 1/xi) * sum(log(term)) - sum(term**(-1/xi))
+        return -ll
+
+    # ---- Approximate Hessian ----
+    epsilon = sqrt(finfo(float).eps)
+    grad = lambda p: approx_fprime(p, neg_log_likelihood_local, epsilon)
+    p = array(params)
+    n = len(p)
+    hessian = zeros((n,n))
+    for i in range(n):
+        def fi(xi): 
+            p_tmp = p.copy()
+            p_tmp[i] = xi
+            return grad(p_tmp)
+        hessian[:,i] = approx_fprime([p[i]], fi, epsilon).flatten()
+    
+    try:
+        cov = linalg.inv(hessian)  # covariance of MLE
+    except linalg.LinAlgError:
+        print("Hessian is singular; cannot compute CI")
+        return None, None
+
+    # Delta method: Var(mu_t) = grad(mu_t)^T * cov * grad(mu_t)
+    mu0, mu1 = params[0], params[1]
+    mu_t = mu0 + mu1 * t
+    grad_mu_t = vstack([ones_like(t), t]).T  # derivative wrt mu0, mu1
+    var_mu_t = sum(grad_mu_t @ cov[:2,:2] * grad_mu_t, axis=1)  # only first 2 params
+    std_mu_t = sqrt(var_mu_t)
+    
+    zscore = norm.ppf(1 - alpha/2)
+    upper = mu_t + zscore * std_mu_t
+    lower = mu_t - zscore * std_mu_t
+    
+    return mu_t, lower, upper
+
+
 def execute_and_store_stat_gev_per_year(results: dict, store_results:bool) -> dict:
     for site_id in results.keys():
         grp_per_year = results[site_id]['data'].groupby('year')
@@ -380,7 +443,11 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool) -> di
 
 
 def weighted_least_square_regression_annual_location(global_statgev_scale, global_statgev_shape, df):
-    df['var_mu'] = (global_statgev_scale ** 2) / df.n_obs.astype(int) * 1 / (1 - global_statgev_shape) ** 2
+    df['n_obs'] = to_numeric(df.n_obs, errors='coerce') 
+    df = df.dropna(subset=['n_obs'])  
+    df['n_obs'] = df.n_obs.astype(int)
+
+    df['var_mu'] = (global_statgev_scale ** 2) / df.n_obs * 1 / (1 - global_statgev_shape) ** 2
     weights = 1.0 / df.var_mu.values
 
     year_mean = df['year'].mean()
@@ -394,7 +461,7 @@ def weighted_least_square_regression_annual_location(global_statgev_scale, globa
     X_pred = sm.add_constant(year_grid - year_mean)  
     y_pred = wls_delta.predict(X_pred)
 
-    return wls_delta, weights, y_pred, year_grid
+    return df, wls_delta, weights, y_pred, year_grid, year_mean
 
 
 def analyze_location_per_model(
