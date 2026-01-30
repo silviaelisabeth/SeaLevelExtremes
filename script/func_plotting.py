@@ -12,7 +12,7 @@ import pydeck as pdk
 import seaborn as sns
 from bidi.algorithm import get_display
 from matplotlib import rcParams
-from numpy import any, arange, array, linspace, ndarray, sqrt
+from numpy import any, arange, array, linspace, nan, ndarray, sqrt
 from pandas import DataFrame
 
 rcParams['font.family'] = [
@@ -72,15 +72,16 @@ def create_map_location_missing_valid_data(
     )
 
     if store_map:
+        file_name = dir_export + f"/map_missingValidData_{round(radius_marker_m/1000,1)}kmRadius.html"
         deck.to_html(
-            dir_export + "/missing_valid_map.html",
+            file_name,
             notebook_display=False, 
             open_browser=False
         )
     if display_map:
         display(deck)
 
-    print("Map saved as missing_valid_map.html! You can open it in your browser and interact with it.")
+    print(f"Map saved as {file_name}. You can open it in your browser and interact with it.")
 
 
 def contains_arabic(text: str) -> bool:
@@ -104,38 +105,74 @@ def normalize_location_text(text: str) -> str:
 
 def plot_annual_max_with_trends(
     ax, annual_max, nonstat, comp, return_levels, colors_trends, linestyle_trends, 
-    axes_color, color_markers='#99E3DDFF', ms=6, fontsize=10, ls_periods: list = ['10-year', '50-year', '100-year']
+    axes_color, color_markers='#99E3DDFF', ms=6, fontsize=10, 
+    ls_periods: list = ['10-year', '50-year', '100-year']
     ):
+    """
+    Plot annual maxima with stationary and non-stationary GEV return levels.
+    Includes CI if return_levels contains them.
+    """
     skip_non_stat = False
+
+    # --- Plot annual maxima ---
     ax.plot(
         annual_max['year'], annual_max['annual_max'], 'o', 
         color=color_markers, markersize=ms, label='Annual max'
-        )
+    )
 
-    if return_levels['stationary']:
+    # --- Plot stationary return levels ---
+    if return_levels.get('stationary'):
         for en, period in enumerate(ls_periods):
             if period not in return_levels['stationary']:
                 print(f" - Warning: period {period} not found in return levels stationary, skipping...")
                 continue
-            
-            level = return_levels['stationary'][period]
-            ax.axhline(
-                y=level, linestyle=linestyle_trends[en], color=colors_trends, label=f'{period} (stationary)'
+
+            # Handle return_level with or without CI
+            lvl = return_levels['stationary'][period]
+            if isinstance(lvl, dict):
+                y = lvl['return_level']
+                ci_lower = lvl.get('CI_lower', y)
+                ci_upper = lvl.get('CI_upper', y)
+                # Plot shaded CI
+                ax.fill_between(
+                    [annual_max['year'].min(), annual_max['year'].max()],
+                    ci_lower, ci_upper,
+                    color=colors_trends, alpha=0.15
                 )
-    
+            else:
+                y = lvl  # just a scalar
+
+            # Plot the main line
+            ax.axhline(
+                y=y, linestyle=linestyle_trends[en], color=colors_trends, 
+                label=f'{period} (stationary)'
+            )
+
+    # --- Plot non-stationary μ(t) if significant ---
     if nonstat and comp and comp['p_value'] < 0.05:
         print('non-stationary')
         years_plot = linspace(annual_max['year'].min(), annual_max['year'].max(), 100)
         t_plot = (years_plot - nonstat['years_mean']) / nonstat['years_std']
         mu_plot = nonstat['mu0'] + nonstat['mu1'] * t_plot
+
+        # Optional: include CI for non-stationary μ(t)
+        if 'CI' in nonstat:
+            mu_lower = nonstat['CI']['mu_lower']
+            mu_upper = nonstat['CI']['mu_upper']
+            ax.fill_between(
+                years_plot, mu_lower, mu_upper,
+                color='red', alpha=0.15, label='95% CI (non-stationary μ)'
+            )
+
         ax.plot(years_plot, mu_plot, 'r-', linewidth=2.5, label='Non-stationary μ(t)', alpha=0.8)
     else:
         print(
-            f"\t WARNING! Skipping non-stationary with model comparison {comp['p_value']:.2f} "
-            f"(threshold for non-stationary 0.05)"
+            f"\t WARNING! Skipping non-stationary with model comparison "
+            f"{comp['p_value']:.2f} (threshold for non-stationary 0.05)"
         )
         skip_non_stat = True
-    
+
+    # --- Labels and title ---
     nsamples = len(annual_max)
     years_unique = annual_max.year.unique()
     ax.set_xlabel('Year', fontsize=fontsize*0.9)
@@ -144,21 +181,21 @@ def plot_annual_max_with_trends(
         f'Annual Maximum Storm Surge (n={nsamples} samples; {len(years_unique)} unique years b/w '
         f'{int(years_unique.min())}-{int(years_unique.max())})', 
         fontsize=fontsize
-        )
-    
+    )
+
+    # --- Legend ---
     leg = ax.legend(loc=0, edgecolor=axes_color, borderpad=.65, fontsize=fontsize*0.75)
     leg.get_frame().set_linewidth(.5)
-    
-    ax.grid(True, alpha=0.3, color='lightgrey')
-    
-    for spine in ax.spines.values():
-            spine.set_visible(False)
 
+    # --- Styling ---
+    ax.grid(True, alpha=0.3, color='lightgrey')
+    for spine in ax.spines.values():
+        spine.set_visible(False)
     ax.axhline(y=ax.get_ylim()[0], color=axes_color, linewidth=1.2, zorder=10)
     ax.axvline(x=ax.get_xlim()[0], color=axes_color, linewidth=1.2, zorder=10)
-
     ax.tick_params(axis='x', colors=axes_color)
     ax.tick_params(axis='y', colors=axes_color)
+
     return skip_non_stat
 
 
@@ -263,6 +300,87 @@ def plot_level_evolution(
     ax.grid(True, alpha=0.3, color='lightgrey')
 
 
+def plot_level_evolution(
+    ax, return_levels, periods, color_levels=['#008A80FF','#CAA5C2FF'], width=0.35,
+    fontsize=10, axes_color='#333333', skip_non_stat=False
+):
+    """
+    Plot evolution of return levels for non-stationary GEV including CI as shaded bars.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axis to plot on
+    return_levels : dict
+        Dictionary with keys 'nonstationary_start' and 'nonstationary_end', each containing:
+            - 'year': year of prediction
+            - 'values': dict of return levels per period, either scalar or dict with 'return_level' and 'CI_lower', 'CI_upper'
+    periods : list[str]
+        List of return period labels, e.g. ['10-year', '50-year', '100-year']
+    color_levels : list[str]
+        Colors for start and end bars
+    width : float
+        Width of bars
+    fontsize : float
+        Font size for labels
+    axes_color : str
+        Color for axes
+    skip_non_stat : bool
+        If True, skip plotting non-stationary return levels
+    """
+    
+    x = arange(len(periods))
+    
+    # Helper function to extract return level and CI
+    def extract_level_and_ci(entry, period):
+        lvl = entry['values'].get(period, None)
+        if lvl is None:
+            return nan, 0, 0
+        if isinstance(lvl, dict):  # has CI
+            return lvl['return_level'], lvl['return_level'] - lvl['CI_lower'], lvl['CI_upper'] - lvl['return_level']
+        else:
+            return lvl, 0, 0
+
+    # Start bars
+    levels_start, err_lower_start, err_upper_start = zip(*[
+        extract_level_and_ci(return_levels['nonstationary_start'], p) for p in periods
+    ])
+    levels_start = array(levels_start)
+    yerr_start = array([err_lower_start, err_upper_start])
+    
+    ax.bar(
+        x - width/2, levels_start, width, 
+        color=color_levels[0], label=f"Start {return_levels['nonstationary_start']['year']}",
+        yerr=yerr_start, capsize=4, alpha=0.7
+    )
+    
+    if not skip_non_stat:
+        # End bars
+        levels_end, err_lower_end, err_upper_end = zip(*[
+            extract_level_and_ci(return_levels['nonstationary_end'], p) for p in periods
+        ])
+        levels_end = array(levels_end)
+        yerr_end = array([err_lower_end, err_upper_end])
+        
+        ax.bar(
+            x + width/2, levels_end, width, 
+            color=color_levels[1], label=f"End {return_levels['nonstationary_end']['year']}",
+            yerr=yerr_end, capsize=4, alpha=0.7
+        )
+    
+    # X-axis
+    ax.set_xticks(x)
+    ax.set_xticklabels(periods, fontsize=fontsize)
+    ax.set_ylabel("Return Level (m)", fontsize=fontsize)
+    ax.legend(fontsize=fontsize*0.8, edgecolor=axes_color)
+    ax.grid(True, alpha=0.3, color='lightgrey')
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.axhline(y=ax.get_ylim()[0], color=axes_color, linewidth=1.2, zorder=10)
+    ax.axvline(x=ax.get_xlim()[0], color=axes_color, linewidth=1.2, zorder=10)
+
+
+
 def create_parameter_summary(
     stat, nonstat, comp, box_x, box_y, ax, fontsize: float = 9, linespace: float = 1.5,
     bbox: Optional[dict]=dict(boxstyle='round', facecolor='#F5F5F5FF', alpha=0.5)
@@ -271,22 +389,22 @@ def create_parameter_summary(
     
     info_text = r"$\bf{STATIONARY\ GEV}$" "\n"
     if stat:
-        info_text += f"  μ = {stat['location']:.3f}\n"
-        info_text += f"  σ = {stat['scale']:.3f}\n"
-        info_text += f"  ξ = {stat['shape']:.3f}\n"
+        info_text += f"  μ = {stat['location']:.4f}\n"
+        info_text += f"  σ = {stat['scale']:.4f}\n"
+        info_text += f"  ξ = {stat['shape']:.4f}\n"
         info_text += f"  Type: {stat['dist_type']}\n"
         info_text += f"  AIC = {stat['aic']:.1f}\n"
     
     if nonstat:
         info_text += "\n"r"$\bf{NON-STATIONARY\ GEV}$" "\n"
-        info_text += f"  μ(t) = {nonstat['mu0']:.3f} + {nonstat['mu1']:.4f}·t\n"
-        info_text += f"  σ = {nonstat['sigma']:.3f}\n"
-        info_text += f"  ξ = {nonstat['xi']:.3f}\n"
+        info_text += f"  μ(t) = {nonstat['mu0']:.4f} + {nonstat['mu1']:.4f}·t\n"
+        info_text += f"  σ = {nonstat['sigma']:.4f}\n"
+        info_text += f"  ξ = {nonstat['xi']:.4f}\n"
         info_text += f"  AIC = {nonstat['aic']:.1f}\n"
     
     if comp:
         info_text += "\n" r"$\bf{SIGNIFICANCE\ TEST}$" "\n"
-        info_text += f"  p-value = {comp['p_value']:.4f}\n"
+        info_text += f"  p-value = {comp['p_value']:.5f}\n"
         info_text += f"  ΔAIC = {comp['delta_aic']:.1f}\n"
     
     ax.text(box_x, box_y, info_text, transform=ax.transAxes, linespacing=linespace,
@@ -435,12 +553,12 @@ def plot_pooled_analysis(
 
     fig.suptitle(
         f'GEV Analysis for location {lat}|{lon} (lat|lon) '
-        f'closest point {normalize_location_text(location_info['description'][0])}', 
+        f'closest point {normalize_location_text(location_info['description'])}', 
         fontsize=fontsize*1.25, fontweight='bold'
         )
 
     # ----------------------------------------------------------------------------
-    # Plot TOP-LEFT: Annual maxima with trends        
+    # Plot TOP-LEFT: Annual maxima with trends      
     skip_non_stat = plot_annual_max_with_trends(
         annual_max=annual_max, return_levels=result['return_levels'], nonstat=nonstat, comp=comp,
         ls_periods=periods_evolution, colors_trends=colors_trends, axes_color=axes_color, color_markers=color_markers, 
@@ -479,7 +597,7 @@ def plot_pooled_analysis(
     
     if save_path:
         Path(save_path).mkdir(parents=True, exist_ok=True)
-        country = location_info['description'][0].split(',')[-1].strip()
+        country = location_info['description'].split(',')[-1].strip()
     
         file_name = f"/GEVanalysis_pooled_{str(site_id)}_{country}_{lat}|{lon}.png"
         print(f"\t saving GEV analysis to {save_path} as {file_name}")
@@ -624,7 +742,9 @@ def plot_gev_mu_trend(
         df_plot['year'], df_plot['location'], s=weights_plot/1000, 
         alpha=0.6, c=markers_color, label='Annual estimates'
     ) 
-
+    for _, row in df_plot.iterrows():
+        ax.text(row.year, row.location, f"{row.n_obs}", fontsize=8, alpha=0.6)
+    
     ax.plot(
         year_grid, y_pred, color='black', 
         label=f'WLS fit (delta-method)\nslope={slope:.5f}, intercept={intercept:.4f} (year centered {int(year_mean)})'
@@ -635,7 +755,6 @@ def plot_gev_mu_trend(
         nonstat_years, nonstat_ci['mu_lower'], nonstat_ci['mu_upper'], color=colors_reg[1], 
         alpha=0.15, label='95% CI (non-stationary)'
         )
-
 
     leg = ax.legend(loc=0, edgecolor=axes_color, borderpad=.65, fontsize=fontsize*0.75)
     leg.get_frame().set_linewidth(.5)
@@ -657,6 +776,4 @@ def plot_gev_mu_trend(
     plt.tight_layout()
     plt.show() if display_results else plt.close()
 
-    return fig
-    return fig
     return fig

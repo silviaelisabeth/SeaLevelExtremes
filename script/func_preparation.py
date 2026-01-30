@@ -386,13 +386,13 @@ def get_location_w_missing_data(
         )
     
     return missing_locations, df_geocoordinates_combined
-    return missing_locations, df_geocoordinates_combined
 
 
 def create_summary_location_w_missing_data(dic_data_per_model, combined, dir_export:Optional[str]):
     model_label = list(dic_data_per_model.keys())[0]
 
     missing_locations, df_valid = get_location_w_missing_data(model_label, dic_data_per_model, combined)
+    print(f'{len(missing_locations)} locations without any valid data found!')
     
     df_missing_location = add_location_labels(missing_locations)
     df_missing_location = df_missing_location.sort_values('country')[['country', 'city', 'admin1', 'lat', 'lon']]

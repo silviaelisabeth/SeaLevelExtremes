@@ -4,7 +4,7 @@ import pickle
 import sys
 from datetime import datetime
 from glob import glob
-from typing import Optional
+from typing import Optional, Tuple
 
 import func_gev as gev
 import func_plotting as dbplt
@@ -71,7 +71,7 @@ def prepare_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> Data
     return data_hindcast
 
 
-def prepare_pooled_data(dic_data: dict, hindcast_start:int, hindcast_end: int) -> dict:
+def prepare_pooled_data(dic_data: dict, hindcast_start:int, hindcast_end: int) -> Tuple[dict, str]:
         """Calculate target years and filter to hindcast period."""
         dic_data_hindcast = {}
         for loc_id, data in dic_data.items():
@@ -81,12 +81,15 @@ def prepare_pooled_data(dic_data: dict, hindcast_start:int, hindcast_end: int) -
         # -----------------------------------------------------------------
         ls_nmodels = [len(v.model.unique()) for v in dic_data_hindcast.values()]
         
-        print(f"\nData Summary")
-        print(f"  Hindcast period: {hindcast_start}-{hindcast_end}")
-        print(f"  Available Models per Location: {min(ls_nmodels)}-{max(ls_nmodels)}")
-        print(f"  Locations to analyse: {len(dic_data_hindcast.keys())}")
+        message = f"""
+                \nData Summary
+                \t  Hindcast period: {hindcast_start}-{hindcast_end}
+                \t  Available Models per Location: {min(ls_nmodels)}-{max(ls_nmodels)}
+                \t  Locations to analyse: {len(dic_data_hindcast.keys())}
+                """.strip()
+        print(message)
         
-        return dic_data_hindcast
+        return dic_data_hindcast, message
 
 
 def get_dataset_overview_for_model_at_location(
@@ -127,7 +130,9 @@ def get_dataset_overview_for_model_at_location(
     return data_for_model_at_location, lon, lat
 
 
-def create_data_overview(dic_data_per_model:dict,ls_files:list[str]) -> None:
+def create_data_overview(dic_data_per_model:dict,ls_files:list[str]) -> list:
+    ls_notes = []
+
     ls_num_samples = []
     dic_sim_years_per_model = dict()
     for model_label in dic_data_per_model.keys():
@@ -137,22 +142,26 @@ def create_data_overview(dic_data_per_model:dict,ls_files:list[str]) -> None:
         data_shape = dic_data_per_model[model_label]['valid data'].shape
         
         ls_num_samples.append(data_shape[0])
-        print(f"{model_label} · {data_shape}")
+        message = f"{model_label} · {data_shape}"
+        ls_notes.append(message)
+        print(message)
         
     sites_valid = [dic_data_per_model[model_label]['preparation info'][0] for model_label in dic_data_per_model.keys()]
     unique_years_per_model = [len(dic_sim_years_per_model[model_label]) for model_label in dic_sim_years_per_model.keys()]
     sim_year_per_model_min = [min(dic_sim_years_per_model[model_label]) for model_label in dic_sim_years_per_model.keys()]
     sim_year_per_model_max = [max(dic_sim_years_per_model[model_label]) for model_label in dic_sim_years_per_model.keys()]
 
-    print(
-        "\nOverall, data is available from "
-        f"\n\t{len(ls_files)} models, "
-        f"\n\t{min(sites_valid)}-{max(sites_valid)} locations "
-        f"(originally {dic_data_per_model[model_label]['preparation info'][1]})"
-        f"\n\t{min(ls_num_samples)}-{max(ls_num_samples)} samples per model "
-        f"\n\t - with {min(unique_years_per_model)}-{max(unique_years_per_model)} unique sim_years"
-        f"\n\t - between {min(sim_year_per_model_min)}-{max(sim_year_per_model_max)}"
-        )
+    message = f"""
+        Overall, data is available from
+        \t{len(ls_files)} models,
+        \t{min(sites_valid)}-{max(sites_valid)} locations (originally {dic_data_per_model[model_label]['preparation info'][1]})
+        \t{min(ls_num_samples)}-{max(ls_num_samples)} samples per model
+        \t - with {min(unique_years_per_model)}-{max(unique_years_per_model)} unique sim_years
+        \t - between {min(sim_year_per_model_min)}-{max(sim_year_per_model_max)}
+        """.strip()
+    ls_notes.append(message)
+    print(message)
+    return ls_notes
 
 
 def save_report_location_results(location_id:int, result_location:dict, base_dir:str) -> str:
@@ -243,3 +252,39 @@ def hex_to_rgba(hex_color):
     b = int(hex_color[4:6], 16)
     a = int(hex_color[6:8], 16) if len(hex_color) == 8 else 255
     return [r, g, b, a]
+
+
+def store_analysis_notes(dic_notes_analysis: dict, path_export: str) -> None:
+    """
+    Save the full log dictionary to a timestamped text file.
+
+    Handles nested dicts and lists, including lists of lists.
+    """
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    file_name = f"{path_export}{timestamp}_analysisNotes.txt"
+
+    def write_item(f, item, indent=0):
+        """Recursively write an item to file, handling nested lists."""
+        prefix = "  " * indent + "- "
+        if isinstance(item, list):
+            for subitem in item:
+                write_item(f, subitem, indent=indent)
+        else:
+            f.write(f"{prefix}{item}\n")
+
+    with open(file_name, "w", encoding="utf-8") as f:
+        for section, content in dic_notes_analysis.items():
+            f.write(f"=== Section: {section} ===\n")
+            
+            if isinstance(content, dict):
+                for site_id, messages in content.items():
+                    f.write(f"SiteID {site_id}:\n")
+                    write_item(f, messages, indent=1)
+                    f.write("\n")
+            elif isinstance(content, list):
+                write_item(f, content)
+                f.write("\n")
+            else:
+                f.write(f"{content}\n\n")
+
+    print(f"Full log written to {file_name}")
