@@ -6,11 +6,31 @@ from datetime import datetime
 from glob import glob
 from typing import Optional, Tuple
 
+import arabic_reshaper
 import func_gev as gev
 import func_plotting as dbplt
-import func_preparation as dbf
+from bidi.algorithm import get_display
 from numpy import isnan, unique
 from pandas import DataFrame, read_parquet
+
+
+def contains_arabic(text: str) -> bool:
+    return any(
+        '\u0600' <= ch <= '\u06FF' or
+        '\u0750' <= ch <= '\u077F' or
+        '\u08A0' <= ch <= '\u08FF'
+        for ch in text
+    )
+
+
+def normalize_location_text(text: str) -> str:
+    """
+    Automatically reshape Arabic text if present.
+    Leaves all other scripts untouched.
+    """
+    if contains_arabic(text):
+        return get_display(arabic_reshaper.reshape(text))
+    return text
 
 
 def initialize_logger(log_filename, log_dir:str="../logs"):
@@ -287,4 +307,5 @@ def store_analysis_notes(dic_notes_analysis: dict, path_export: str) -> None:
             else:
                 f.write(f"{content}\n\n")
 
+    print(f"Full log written to {file_name}")
     print(f"Full log written to {file_name}")

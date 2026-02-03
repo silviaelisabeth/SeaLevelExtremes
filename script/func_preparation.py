@@ -4,14 +4,11 @@ from pathlib import Path
 from time import sleep
 from typing import Optional, Tuple
 
-import func_gev as gev
 import func_plotting as dbplt
-import func_utils as ut
 import reverse_geocoder as rg
 import xarray as xr
 from geopy.exc import GeocoderTimedOut
 from geopy.geocoders import Nominatim
-from geopy.location import Location
 from joblib import Parallel, delayed
 from numpy import allclose, ndarray
 from pandas import DataFrame, MultiIndex, concat
@@ -388,7 +385,7 @@ def get_location_w_missing_data(
     return missing_locations, df_geocoordinates_combined
 
 
-def create_summary_location_w_missing_data(dic_data_per_model, combined, dir_export:Optional[str]):
+def create_summary_location_w_missing_data(dic_data_per_model:dict, combined, dir_export:Optional[str]):
     model_label = list(dic_data_per_model.keys())[0]
 
     missing_locations, df_valid = get_location_w_missing_data(model_label, dic_data_per_model, combined)

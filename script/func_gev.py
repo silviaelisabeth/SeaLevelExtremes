@@ -828,8 +828,6 @@ def create_gev_report_per_location(
             
             df_messages = DataFrame({'messages': ls_messages}) 
             df_messages.to_parquet(full_file_path, index=False)
-            #with open(full_file_path, 'w') as f:
-            #    f.write('\n'.join(ls_messages))
         else:
             save_path = None
             
