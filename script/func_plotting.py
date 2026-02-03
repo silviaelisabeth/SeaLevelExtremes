@@ -104,9 +104,8 @@ def normalize_location_text(text: str) -> str:
 
 
 def plot_annual_max_with_trends(
-    ax, annual_max, nonstat, comp, return_levels, colors_trends, linestyle_trends, 
-    axes_color, color_markers='#99E3DDFF', ms=6, fontsize=10, 
-    ls_periods: list = ['10-year', '50-year', '100-year']
+    ax, annual_max, nonstat, comp, return_levels, colors_trends, linestyle_trends, axes_color, 
+    color_markers='#99E3DDFF', ms=6, fontsize=10, ls_periods: list = ['10-year', '50-year', '100-year']
     ):
     """
     Plot annual maxima with stationary and non-stationary GEV return levels.
@@ -116,8 +115,7 @@ def plot_annual_max_with_trends(
 
     # --- Plot annual maxima ---
     ax.plot(
-        annual_max['year'], annual_max['annual_max'], 'o', 
-        color=color_markers, markersize=ms, label='Annual max'
+        annual_max['year'], annual_max['annual_max'], 'o', color=color_markers, markersize=ms, label='Annual max'
     )
 
     # --- Plot stationary return levels ---
@@ -127,58 +125,40 @@ def plot_annual_max_with_trends(
                 print(f" - Warning: period {period} not found in return levels stationary, skipping...")
                 continue
 
-            # Handle return_level with or without CI
             lvl = return_levels['stationary'][period]
             if isinstance(lvl, dict):
                 y = lvl['return_level']
-                ci_lower = lvl.get('CI_lower', y)
-                ci_upper = lvl.get('CI_upper', y)
-                # Plot shaded CI
                 ax.fill_between(
-                    [annual_max['year'].min(), annual_max['year'].max()],
-                    ci_lower, ci_upper,
-                    color=colors_trends, alpha=0.15
+                    [annual_max['year'].min(), annual_max['year'].max()], 
+                    lvl.get('CI_lower', y), lvl.get('CI_upper', y), color=colors_trends, alpha=0.15
                 )
             else:
-                y = lvl  # just a scalar
-
-            # Plot the main line
-            ax.axhline(
-                y=y, linestyle=linestyle_trends[en], color=colors_trends, 
-                label=f'{period} (stationary)'
-            )
+                y = lvl 
+            ax.axhline(y=y, linestyle=linestyle_trends[en], color=colors_trends, label=f'{period} (stationary)')
 
     # --- Plot non-stationary μ(t) if significant ---
     if nonstat and comp and comp['p_value'] < 0.05:
-        print('non-stationary')
-        years_plot = linspace(annual_max['year'].min(), annual_max['year'].max(), 100)
-        t_plot = (years_plot - nonstat['years_mean']) / nonstat['years_std']
-        mu_plot = nonstat['mu0'] + nonstat['mu1'] * t_plot
-
-        # Optional: include CI for non-stationary μ(t)
         if 'CI' in nonstat:
-            mu_lower = nonstat['CI']['mu_lower']
-            mu_upper = nonstat['CI']['mu_upper']
             ax.fill_between(
-                years_plot, mu_lower, mu_upper,
+                annual_max['year'], nonstat['CI']['mu_lower'], nonstat['CI']['mu_upper'], 
                 color='red', alpha=0.15, label='95% CI (non-stationary μ)'
             )
-
-        ax.plot(years_plot, mu_plot, 'r-', linewidth=2.5, label='Non-stationary μ(t)', alpha=0.8)
+        ax.plot(
+            annual_max['year'], nonstat['CI']['mu_pred'], 'r-', linewidth=1.5, label='Non-stationary μ(t)', alpha=0.8
+            )
     else:
         print(
-            f"\t WARNING! Skipping non-stationary with model comparison "
-            f"{comp['p_value']:.2f} (threshold for non-stationary 0.05)"
+            f"\t WARNING! Skipping non-stationary with model comparison {comp['p_value']:.2f} "
+            f"(threshold for non-stationary 0.05)"
         )
         skip_non_stat = True
 
     # --- Labels and title ---
-    nsamples = len(annual_max)
     years_unique = annual_max.year.unique()
     ax.set_xlabel('Year', fontsize=fontsize*0.9)
     ax.set_ylabel('Storm Surge (m)', fontsize=fontsize*0.9)
     ax.set_title(
-        f'Annual Maximum Storm Surge (n={nsamples} samples; {len(years_unique)} unique years b/w '
+        f'Annual Maximum Storm Surge (n={len(annual_max)} samples; {len(years_unique)} unique years b/w '
         f'{int(years_unique.min())}-{int(years_unique.max())})', 
         fontsize=fontsize
     )
@@ -234,75 +214,8 @@ def plot_model_comparison(
 
 
 def plot_level_evolution(
-    ax, return_levels: dict, periods: list, color_levels: list[str], width: float = 0.35, fontsize: float = 9, 
-    axes_color: str = '#333333', skip_non_stat: bool = False
-    ):
-    levels_start = [return_levels['nonstationary_start']['values'][p] for p in periods]
-    levels_end = [return_levels['nonstationary_end']['values'][p] for p in periods]
-    x = arange(len(periods))
-    
-    bars_start = ax.bar(
-            x - width/2, levels_start, width, 
-            label='start ' + str(return_levels['nonstationary_start']['year']), color=color_levels[0]
-            )
-    
-    if skip_non_stat is False:
-        bars_end = ax.bar(
-                x + width/2, levels_end, width, 
-                label='end ' + str(return_levels['nonstationary_end']['year']),  color=color_levels[1]
-                )
-        
-    for bar, level in zip(bars_start, levels_start):
-            height = bar.get_height()
-            ax.text(
-                    bar.get_x() + bar.get_width()/2., height, f'{level:.2f}m', 
-                    ha='center', va='bottom', fontsize=fontsize*0.85,
-                    )
-    
-    if skip_non_stat is False:
-        for bar, level in zip(bars_end, levels_end):
-                height = bar.get_height()
-                ax.text(
-                        bar.get_x() + bar.get_width()/2., height, f'{level:.2f}m',  
-                        ha='center', va='bottom', fontsize=fontsize*0.85,
-                        )
-
-    ax.set_xlabel('Return Period', fontsize=fontsize)
-    ax.set_ylabel('Return Level (m)', fontsize=fontsize)
-    if skip_non_stat:
-        ax.set_title('Return Levels Stationary', fontsize=fontsize)        
-    else:
-        ax.set_title('Return Levels Non-Stationary Evolution', fontsize=fontsize)
-    ax.set_xticks(x)
-    
-    period_labels = []
-    for period in periods:
-            # 100% / return-period ~ probability
-            period_num = int(period.replace('-year', ''))
-            probability = 100 / period_num 
-            period_labels.append(f'{period} ({probability:.1f}%)')
-    ax.set_xticklabels(period_labels, fontsize=fontsize*0.9)
-            
-    leg = ax.legend(loc=4, edgecolor=axes_color, borderpad=.65, fontsize=fontsize*0.75)
-    leg.get_frame().set_linewidth(.5)
-    
-    ax.grid(True, alpha=0.3, axis='y')
-    
-    for spine in ax.spines.values():
-            spine.set_visible(False)
-
-    ax.axhline(y=ax.get_ylim()[0], color=axes_color, linewidth=1.2, zorder=10)
-    ax.axvline(x=ax.get_xlim()[0], color=axes_color, linewidth=1.2, zorder=10)
-
-    ax.tick_params(axis='x', colors=axes_color)
-    ax.tick_params(axis='y', colors=axes_color)
-
-    ax.grid(True, alpha=0.3, color='lightgrey')
-
-
-def plot_level_evolution(
-    ax, return_levels, periods, color_levels=['#008A80FF','#CAA5C2FF'], width=0.35,
-    fontsize=10, axes_color='#333333', skip_non_stat=False
+    ax, return_levels, periods, color_levels=['#008A80FF','#CAA5C2FF'], width=0.35, fontsize=10, 
+    axes_color='#333333', skip_non_stat=False
 ):
     """
     Plot evolution of return levels for non-stationary GEV including CI as shaded bars.
@@ -331,7 +244,6 @@ def plot_level_evolution(
     
     x = arange(len(periods))
     
-    # Helper function to extract return level and CI
     def extract_level_and_ci(entry, period):
         lvl = entry['values'].get(period, None)
         if lvl is None:
@@ -341,7 +253,6 @@ def plot_level_evolution(
         else:
             return lvl, 0, 0
 
-    # Start bars
     levels_start, err_lower_start, err_upper_start = zip(*[
         extract_level_and_ci(return_levels['nonstationary_start'], p) for p in periods
     ])
@@ -349,13 +260,11 @@ def plot_level_evolution(
     yerr_start = array([err_lower_start, err_upper_start])
     
     ax.bar(
-        x - width/2, levels_start, width, 
-        color=color_levels[0], label=f"Start {return_levels['nonstationary_start']['year']}",
-        yerr=yerr_start, capsize=4, alpha=0.7
+        x - width/2, levels_start, width, yerr=yerr_start, capsize=4, alpha=0.7,
+        color=color_levels[0], label=f"Start {return_levels['nonstationary_start']['year']}", 
     )
     
     if not skip_non_stat:
-        # End bars
         levels_end, err_lower_end, err_upper_end = zip(*[
             extract_level_and_ci(return_levels['nonstationary_end'], p) for p in periods
         ])
@@ -363,12 +272,16 @@ def plot_level_evolution(
         yerr_end = array([err_lower_end, err_upper_end])
         
         ax.bar(
-            x + width/2, levels_end, width, 
-            color=color_levels[1], label=f"End {return_levels['nonstationary_end']['year']}",
-            yerr=yerr_end, capsize=4, alpha=0.7
+            x + width/2, levels_end, width, color=color_levels[1], yerr=yerr_end, capsize=4, alpha=0.7,
+            label=f"End {return_levels['nonstationary_end']['year']}", 
         )
     
     # X-axis
+    if not skip_non_stat:
+        ax.set_title("Return Levels Non-Stationary Evolution incl Uncertainty", fontsize=fontsize)
+    else:
+        ax.set_title("Return Levels Stationary incl. Uncertainty", fontsize=fontsize)
+        
     ax.set_xticks(x)
     ax.set_xticklabels(periods, fontsize=fontsize)
     ax.set_ylabel("Return Level (m)", fontsize=fontsize)
@@ -376,9 +289,9 @@ def plot_level_evolution(
     ax.grid(True, alpha=0.3, color='lightgrey')
     for spine in ax.spines.values():
         spine.set_visible(False)
+    
     ax.axhline(y=ax.get_ylim()[0], color=axes_color, linewidth=1.2, zorder=10)
     ax.axvline(x=ax.get_xlim()[0], color=axes_color, linewidth=1.2, zorder=10)
-
 
 
 def create_parameter_summary(
