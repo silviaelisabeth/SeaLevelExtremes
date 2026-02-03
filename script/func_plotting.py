@@ -239,19 +239,14 @@ def plot_annual_max_with_trends(
     # --- Plot non-stationary μ(t) if significant ---
     if nonstat and comp and comp['p_value'] < 0.05:
         if 'CI' in nonstat:
-            print(124)
-            #ax.fill_between(
-            #    annual_max['year'], nonstat['CI']['mu_lower'], nonstat['CI']['mu_upper'], 
-            #    color='red', alpha=0.15, label='95% CI (non-stationary μ)'
-            #)
-        #ax.plot(
-        #    annual_max['year'], nonstat['CI']['mu_pred'], 'r-', linewidth=1.5, label='Non-stationary μ(t)', alpha=0.8
-        #    )
-        
+            ax.fill_between(
+                annual_max['year'], nonstat['CI']['mu_lower'], nonstat['CI']['mu_upper'], 
+                color='red', alpha=0.15, label='95% CI (non-stationary μ)'
+            )
+        ax.plot(
+            annual_max['year'], nonstat['CI']['mu_pred'], 'r-', linewidth=1.5, label='Non-stationary μ(t)', alpha=0.8
+            )
 
-
-        
-        
     else:
         print(
             f"\t WARNING! Skipping non-stationary with model comparison {comp['p_value']:.2f} "
