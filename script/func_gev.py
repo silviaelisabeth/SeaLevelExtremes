@@ -630,12 +630,15 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
         results[site_id]['fit results']['gev_stationary']['return_levels_per_year'] = df_stat_return_levels_per_year.dropna()
         
         if store_results:
-            df_stat_gev_per_year.to_parquet(
-                os.path.join(results[site_id]['file location'], f"statGEV_per_year.parquet")
-                )
+            if 'file_path_report' in results[site_id].keys():
+                file_path = results[site_id]['file_path_report']
+            else:
+                file_path = results[site_id]['file location']
+                
+            df_stat_gev_per_year.to_parquet(os.path.join(file_path, f"statGEV_per_year.parquet"))
         
         dic_notes[site_id] = ls_notes       
-    return results, dic_notes, results_return_values_per_year
+    return results, dic_notes
 
 
 def weighted_least_square_regression_annual_location(global_statgev_scale, global_statgev_shape, df):
