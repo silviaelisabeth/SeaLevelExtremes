@@ -67,6 +67,7 @@ def create_map_location_missing_valid_data(
 
     print(f"Map saved as {file_name}. You can open it in your browser and interact with it.")
 
+
 def plot_gev_mu_trend(
     df: DataFrame,
     weights: list,
