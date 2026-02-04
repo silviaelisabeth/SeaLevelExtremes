@@ -5,6 +5,7 @@ from time import sleep
 from typing import Optional, Tuple
 
 import func_plotting as dbplt
+import func_utils as ut
 import reverse_geocoder as rg
 import xarray as xr
 from geopy.exc import GeocoderTimedOut
@@ -358,6 +359,58 @@ def data_preparation(ls_files:list[str], dic_data_per_model:dict) -> dict:
         dic_data_per_model[model_name]['valid data'] = data_valid
         dic_data_per_model[model_name]['preparation info'] = prep_info
     return dic_data_per_model
+
+
+def process_location(loc_ex, combined, hindcast_start, hindcast_end):
+    data_at_location_ = combined[:, :, :, loc_ex].to_dataframe().dropna().reset_index().rename(columns={'annualMax':'storm_surge'})
+    data_at_location, message = ut.prepare_pooled_data_per_location(
+        loc_ex=loc_ex,
+        data=data_at_location_,
+        hindcast_start=hindcast_start,
+        hindcast_end=hindcast_end
+    )
+    return loc_ex, data_at_location, message
+
+
+def data_rearrangement(combined, hindcast_start, hindcast_end):
+    results = Parallel(n_jobs=-1, backend='loky', verbose=10)(
+        delayed(process_location)(
+            loc_ex=loc_ex, combined=combined, hindcast_start=hindcast_start, hindcast_end=hindcast_end
+        ) for loc_ex in range(combined.shape[-1])
+    )
+    
+    return results
+
+
+def extract_location_data_and_info(results):
+    dic_data_per_location = {}
+    messages = []
+    for loc_ex, data_at_location, message in results:
+        dic_data_per_location[loc_ex] = data_at_location
+        messages.append({'location': loc_ex, 'message': message})
+
+    df_messages = DataFrame(messages).set_index('location')
+
+    dic_location_info = dict(map(lambda site: 
+        (int(site), DataFrame([m.strip() for m in df_messages.loc[site, 'message'].split('\t')])), df_messages.index
+        ))
+    data_overview_preped = concat(dic_location_info, axis=1).T
+    data_overview_preped.index = data_overview_preped.index.levels[0]
+    data_overview_preped.columns=['siteID', 'hindcast period', 'available models at location', 'observations for analysis']
+
+    column = 'observations for analysis'
+    data_overview_preped[column] = [int(o.split('analyse:')[1].strip()) for o in data_overview_preped[column].values]
+
+    column = 'siteID'
+    data_overview_preped[column] = [int(o.split('siteID')[1].strip()) for o in data_overview_preped[column].values]
+
+    column = 'hindcast period'
+    data_overview_preped[column] = [o.split('period:')[1].strip() for o in data_overview_preped[column].values]
+
+    column = 'available models at location'
+    data_overview_preped[column] = [int(o.split('Location:')[1].strip()) for o in data_overview_preped[column].values]
+    
+    return dic_data_per_location, data_overview_preped
 
 
 def get_location_w_missing_data(

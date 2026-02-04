@@ -91,6 +91,26 @@ def prepare_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> Data
     return data_hindcast
 
 
+def prepare_pooled_data_per_location(
+    loc_ex: int, data: DataFrame, hindcast_start:int, hindcast_end: int
+    ) -> tuple[dict, str]:
+    """Calculate target years and filter to hindcast period."""
+
+    mask = (data['sim_year'] >= hindcast_start) & (data['sim_year'] <= hindcast_end)
+    data_hindcast = data[mask].copy()
+
+    # -----------------------------------------------------------------
+
+    message = f"""
+            \nData Summary siteID {loc_ex}
+            \t  Hindcast period: {hindcast_start}-{hindcast_end}
+            \t  Available Models at Location: {len(data_hindcast.model.unique())}
+            \t  Observations for analyse: {len(data_hindcast)}
+            """.strip()
+    
+    return data_hindcast, message
+
+
 def prepare_pooled_data(dic_data: dict, hindcast_start:int, hindcast_end: int) -> Tuple[dict, str]:
         """Calculate target years and filter to hindcast period."""
         dic_data_hindcast = {}

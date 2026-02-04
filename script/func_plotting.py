@@ -67,7 +67,6 @@ def create_map_location_missing_valid_data(
 
     print(f"Map saved as {file_name}. You can open it in your browser and interact with it.")
 
-
 def plot_gev_mu_trend(
     df: DataFrame,
     weights: list,
@@ -114,7 +113,7 @@ def plot_gev_mu_trend(
     
     ax.plot(
         year_grid, y_pred, color='black', 
-        label=f'WLS fit (delta-method)\nslope={slope:.5f}, intercept={intercept:.4f} (centered {int(year_mean)})'
+        label=f'Annual stationary μ(t)\nslope={slope:.5f}, intercept={intercept:.4f} (centered {int(year_mean)})'
     )
     ax.plot(
         nonstat_years, nonstat['CI']['mu_pred'], color=colors_reg[1], linewidth=1.5,
@@ -123,7 +122,7 @@ def plot_gev_mu_trend(
         ), alpha=0.8
     )
 
-    ax.fill_between(year_grid, y_lower, y_upper, color=colors_reg[0], alpha=0.15, label='95% CI (WLS)')
+    ax.fill_between(year_grid, y_lower, y_upper, color=colors_reg[0], alpha=0.15, label='95% CI (annual stationary)')
     ax.fill_between(
         nonstat_years, nonstat['CI']['mu_lower'], nonstat['CI']['mu_upper'], color=colors_reg[1], 
         alpha=0.15, label='95% CI (non-stationary)'
