@@ -600,11 +600,15 @@ def plot_pooled_analysis(
     
     if save_path:
         Path(save_path).mkdir(parents=True, exist_ok=True)
+        
         country = location_info['description'].split(',')[-1].strip()
-    
-        file_name = f"/GEVanalysis_pooled_{str(site_id)}_{country}_{lat}|{lon}.png"
+        country_clean = ut.sanitize_filename(country)
+        lat_clean = str(lat).replace('.', '_')
+        lon_clean = str(lon).replace('.', '_')
+
+        file_name = f"/GEVanalysis_pooled_{str(site_id)}_{country_clean}_{lat_clean}_{lon_clean}.png"
         print(f"\t saving GEV analysis to {save_path} as {file_name}")
 
-        plt.savefig(save_path+file_name, dpi=300, bbox_inches='tight')
+        plt.savefig(save_path/file_name, dpi=300, bbox_inches='tight')
     
     plt.show() if display_results else plt.close(fig)

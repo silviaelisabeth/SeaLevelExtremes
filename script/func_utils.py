@@ -1,6 +1,7 @@
 import logging
 import os
 import pickle
+import re
 import sys
 from datetime import datetime
 from glob import glob
@@ -12,6 +13,10 @@ import func_plotting as dbplt
 from bidi.algorithm import get_display
 from numpy import isnan, unique
 from pandas import DataFrame, read_parquet
+
+
+def sanitize_filename(s):
+    return re.sub(r'[<>:"/\\|?*]', '_', s)
 
 
 def contains_arabic(text: str) -> bool:
@@ -327,5 +332,6 @@ def store_analysis_notes(dic_notes_analysis: dict, path_export: str) -> None:
             else:
                 f.write(f"{content}\n\n")
 
+    print(f"Full log written to {file_name}")
     print(f"Full log written to {file_name}")
     print(f"Full log written to {file_name}")
