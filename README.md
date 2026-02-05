@@ -105,5 +105,6 @@ the original data should please contact
 ---
 
 # License
-
+Copyright © 2023–2026<br>
+SilviaE. Zieger<br><br>
 This project/repo is licensed under the [Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0)](https://creativecommons.org/licenses/by-nc/4.0/).
