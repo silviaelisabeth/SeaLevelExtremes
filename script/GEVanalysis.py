@@ -12,7 +12,7 @@ import xarray as xr
 from joblib import Parallel, delayed
 from pandas import DataFrame
 
-# NOTES: for execution, run from your terminal · python analysis.py --input_dir "/path/to/netcdf/files"
+# NOTES: for execution, run from your terminal · python3 GEVanalysis.py --input_dir "/path/to/netcdf/files"
 # --------------------------------------------------------------------------
 # CONFIGURATION
 # --------------------------------------------------------------------------
