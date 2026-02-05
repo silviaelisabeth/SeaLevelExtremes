@@ -448,7 +448,9 @@ def create_summary_location_w_missing_data(dic_data_per_model:dict, combined, di
     df_missing_location = df_missing_location.sort_values('country')[['country', 'city', 'admin1', 'lat', 'lon']]
     
     if dir_export:
-        df_missing_location.to_csv(dir_export + 'missing_locations_summary.txt', sep='\t', index=False)
+        file_name = dir_export + '/missing_locations_summary.txt'
+        df_missing_location.to_csv(file_name, sep='\t', index=False)
+        print(f"Overview of location with missing data saved as {file_name}.")
         
         dbplt.create_map_location_missing_valid_data(
             missing_locations=missing_locations, df_valid=df_valid, 

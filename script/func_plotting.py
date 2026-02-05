@@ -1,8 +1,10 @@
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import func_utils as ut
+import matplotlib
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import pydeck as pdk
@@ -13,6 +15,8 @@ from matplotlib.figure import Figure
 from numpy import arange, array, nan, ndarray, sqrt
 from pandas import DataFrame
 from statsmodels.regression.linear_model import RegressionResultsWrapper
+
+matplotlib.use("Agg")  # Must be done before importing pyplot
 
 rcParams['font.family'] = [
     'Noto Sans',
@@ -60,6 +64,7 @@ def create_map_location_missing_valid_data(
     )
 
     if store_map:
+        os.makedirs(dir_export, exist_ok=True)  
         file_name = dir_export + f"/map_missingValidData_{round(radius_marker_m/1000,1)}kmRadius.html"
         deck.to_html(file_name, notebook_display=False, open_browser=False)
     if display_map:
@@ -147,7 +152,7 @@ def plot_gev_mu_trend(
     ax.set_ylabel('GEV location parameter', fontsize=fontsize)
 
     plt.tight_layout()
-    plt.show() if display_results else plt.close()
+    plt.show() if display_results else plt.close(fig)
 
     return fig
 
@@ -430,6 +435,7 @@ def plot_analysis(
     fontsize: float = 9,
     figsize: tuple[float, float] = (15, 8),
     linespace: float = 1.5,
+    display_results: bool = False,
     ) -> None:
     """Create comprehensive visualization."""
 
@@ -505,7 +511,7 @@ def plot_analysis(
         print(f"\t saving GEV analysis to {save_path} as {file_name}")
 
         plt.savefig(save_path+file_name, dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.show() if display_results else plt.close(fig)
     
 
 def plot_pooled_analysis(
@@ -528,7 +534,7 @@ def plot_pooled_analysis(
     fontsize: float = 9,
     figsize: tuple[float, float] = (15, 8),
     linespace: float = 1.5,
-    display_results: bool = True,
+    display_results: bool = False,
     ) -> None:
     """Create comprehensive visualization."""
     location_info = result['location info']
@@ -598,5 +604,4 @@ def plot_pooled_analysis(
 
         plt.savefig(save_path+file_name, dpi=300, bbox_inches='tight')
     
-    plt.show() if display_results else plt.close()
-    plt.show() if display_results else plt.close()
+    plt.show() if display_results else plt.close(fig)

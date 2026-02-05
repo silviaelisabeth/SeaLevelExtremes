@@ -2,7 +2,6 @@ import argparse
 import glob
 import multiprocessing as mp
 import os
-import sys
 from datetime import datetime
 
 import func_gev as gev
@@ -18,7 +17,8 @@ from pandas import DataFrame
 # CONFIGURATION
 # --------------------------------------------------------------------------
 
-path_export = '../output/gev_analysis/pooled/'
+path_export = '../output/'
+path_logs = '../logs/'
 hindcast_start = 1960
 hindcast_end = 2026
 return_periods = [10, 25, 50, 100, 200]
@@ -40,12 +40,12 @@ colors = [
 
 def initialize_logger(log_name=None):
     """
-    Returns a simple logger that writes to a timestamped file in path_export.
+    Returns a simple logger that writes to a timestamped file in path_logs.
     """
     import logging
     if log_name is None:
         log_name = f"LOGS_GEVAnalysis_{datetime.now():%Y%m%d_%H%M%S}.log"
-    log_path = os.path.join(path_export, log_name)
+    log_path = os.path.join(path_logs, log_name)
     logger = logging.getLogger('gev_analysis')
     logger.setLevel(logging.INFO)
     fh = logging.FileHandler(log_path)
@@ -93,11 +93,9 @@ def process_location(location_item):
     lon_loc = df_prepared.lon.unique()[0]
     lat_loc = df_prepared.lat.unique()[0]
 
-    # Location info
     location_closest = dbf.add_location_labels(DataFrame([lon_loc, lat_loc], index=['lon', 'lat']).T)
     location_info = ' '.join(location_closest.values[0][2:])
 
-    # GEV analysis
     result, ls_warnings = gev.analyze_per_location(
         df_prepared, loc_id, lat_loc, lon_loc, location_info, return_periods
     )
@@ -108,13 +106,12 @@ def process_location(location_item):
         messages.append(f"No valid GEV fit for location {loc_id}")
         return loc_id, None, messages
 
-    # Optional report export
     export_path_site = None
     if export_report and path_export:
         export_path_site = ut.save_location_results(
             location_id=loc_id,
             result_location=result,
-            base_dir=path_export,
+            base_dir=path_export + '/gev_analysis/pooled/',
             plot_period_evolution=plot_period_evolution,
             display_results=display_results
         )
@@ -128,7 +125,7 @@ def run_gev_parallel(dic_data_per_location, n_jobs=None):
         n_jobs = max(1, mp.cpu_count() - 1)
 
     items = list(dic_data_per_location.items())
-    out = Parallel(n_jobs=n_jobs, backend='loky', verbose=10)(
+    out = Parallel(n_jobs=n_jobs, backend='threading', verbose=10)(
         delayed(process_location)(item) for item in items
     )
 
@@ -157,11 +154,11 @@ def main(ls_files):
     dic_notes_analysis = {}
 
     dic_data_per_model = import_all_models(ls_files)
-    print('Importing data done; next pooling and preparing data...')
+    print('\nImporting data done; next pooling and preparing data...')
     
     dic_data_per_model, combined, notes_overview = prepare_combined_data(ls_files, dic_data_per_model)
     dic_notes_analysis['data overview'] = notes_overview
-    print('Pooling and preparing data done. Next checking locations with missing data...')
+    print('\nPooling and preparing data done. Next checking locations with missing data...')
     
     missing_locations = dbf.create_summary_location_w_missing_data(
         dic_data_per_model=dic_data_per_model,
@@ -169,23 +166,22 @@ def main(ls_files):
         dir_export=os.path.join(path_export, 'exploration')
     )
     dic_notes_analysis['data pooling'] = [f"{len(missing_locations)} locations without any valid data found!"]
-    print(f'Found {len(missing_locations)} locations with missing data → check output folder.')
 
-    print('Rearranging data to sort per location...')    
+    print('\nRearranging data to sort per location...')    
     dic_data_per_location = extract_location_data(combined)
 
-    print('Rearranging done; next run GEV analysis with pooled data...')
+    print('\nRearranging done; next run GEV analysis with pooled data...')
     results, ls_notes = run_gev_parallel(dic_data_per_location)
     dic_notes_analysis['GEV pooled analysis'] = ls_notes
 
-    print('Stationary and non-stationary GEV analysis done with pooled data; next, run annual stationary GEV...')
+    print('\nStationary and non-stationary GEV analysis done with pooled data; next, run annual stationary GEV...')
     results_extended, ls_notes_analysis = run_annual_gev(results)
     dic_notes_analysis['annual_statGEV'] = ls_notes_analysis
 
-    print('All analysis done; next store output...')
-    ut.store_analysis_notes(dic_notes_analysis, path_export)
+    print('\nAll analysis done; next store output...')
+    ut.store_analysis_notes(dic_notes_analysis, path_export + '/gev_analysis/pooled/')
 
-    print(f"Analysis completed. Log saved at {log_path}")
+    print(f"\nAnalysis completed. Log saved at {log_path}")
 
     logger.removeHandler(fh)
     fh.close()
