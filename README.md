@@ -74,7 +74,7 @@ The project has a simple structure
 The `script/` folder contains all code relevant for data exploration and GEV analysis:
 
 - All `.py` files starting with `func_` contain helper functions for data preparation, GEV analysis, and plotting.
-- The Jupyter notebooks `data_exploration.ipynn` and `GEVanalysis.ipynb` are step-by-step notebooks for interactive exploration of the raw data and a guide to walk you through the GEV analysis for a subset of ~10 locations.
+- The Jupyter notebooks `data_exploration.ipynb` and `GEVanalysis.ipynb` are step-by-step notebooks for interactive exploration of the raw data and a guide to walk you through the GEV analysis for a subset of ~10 locations.
 - Finally, `GEVanalysis.py` is the optimized version of the respective notebook for efficient analysis of all locations using multiprocessing.
 
 ---
