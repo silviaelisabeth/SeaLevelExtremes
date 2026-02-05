@@ -4,13 +4,13 @@ Here, a climate data analysis with focus on sea-level extremes shall be conducte
 
 The objectives for this project are:
 
-1. Ingest and prepare data from multi-model ensembles of sea-level simulations for extreme-value analysis. The ensembles will be provided by Prof. Francisco and are based on hindcast data from the Decadal Climate Prediction Project (_DCPP_).
-2. Compute extreme-value statistics by fitting a **Generalized Extreme Value** (GEV) distribution to the simulated data at each coastal location, including trends in the location parameter of the GEV distribution with associated uncertainties. The preference would be to use a **Bayesian model for the fit of the GEV**, though that is not essential.
+1. Ingest and prepare data from multi-model ensembles of sea-level simulations for extreme-value analysis. Data will be provided by Prof. Francisco Calafat and is based on hindcast data from the Decadal Climate Prediction Project (_DCPP_).
+2. Compute extreme-value statistics by fitting a **Generalized Extreme Value** (GEV) distribution to the simulated data at each coastal location, including trends in the location parameter of the GEV distribution with associated uncertainties.
 3. Deliver outputs (i.e., extreme-value statistics) and a short technical report (~5 pages).
 
-**Timeline:** Deliverables by 31 May 2026.
+**Timeline:** Deliverables by May 2026.
 
-**More about the data:** The data consist of sea-level annual maxima along the European coastlines (including the Mediterranean Sea but excluding the Baltic) for the period 1960-2019. The simulations come from a total of 8 models, each with 2 ensemble members except for one model which has 10 ensemble members. In total, there are approximately 13000 annual maxima at each coastal location. The whole dataset is about 12 GB.
+**More about the data:** The data consist of sea-level annual maxima along the European coastlines (including the Mediterranean Sea but excluding the Baltic) for the period 1960-2026. The simulations come from a total of 8 models, each with 2 ensemble members for 11022 locations along the European coastline. The whole dataset is about 12 GB. Before executing the GEV analysis, the correct bias correction must be collected; only data flagged as valid must be considered in the analysis.
 
 **Deliverables:** Extreme-value statistics and report.
 
@@ -46,39 +46,64 @@ The objectives for this project are:
 
 ## Installation
 
-This project requires Python 3.8+ and the following packages:
+This project requires Python 3.8+. The required packages can be installed by executing:
 
 ```bash
-pip install numpy pandas xarray joblib matplotlib
+pip install -r requirements.txt
 ```
 
 ---
 
-## Usage
+## Folder Structure
 
-Run the analysis from the terminal or PyCharm:
-python analysis.py --input_dir "/path/to/netcdf/files" --pattern "_.nc"
-Arguments:
---input_dir : Directory containing input NetCDF files.
---pattern (optional) : Filename pattern to select files (default: _.nc).
-The script will:
-Import and prepare data from all models.
-Pool and combine data by location.
-Fit GEV distributions for all locations in parallel.
-Compute annual extreme value statistics.
-Optionally generate plots and save per-location reports.
-Store detailed analysis notes and logs in the output directory.
+The project has a simple structure
+
+```
+├── script/       # Data analysis scripts and helper functions
+├── output/       # Generated results, plots, and logs
+```
+
+The `script/` folder contains all code relevant for data exploration and GEV analysis:
+
+- All `.py` files starting with `func_` contain helper functions for data preparation, GEV analysis, and plotting.
+- The Jupyter notebooks `data_exploration.ipynn` and `GEVanalysis.ipynb` are step-by-step notebooks for interactive exploration of the raw data and a guide to walk you through the GEV analysis for a subset of ~10 locations.
+- Finally, `GEVanalysis.py` is the optimized version of the respective notebook for efficient analysis of all locations using multiprocessing.
 
 ---
 
-# Performance
+## Running the Analysis
 
-Optimized for >10,000 locations and hundreds of temporal samples per site.
-Parallelized per-location computations using all available CPU cores.
-Deferred plotting/reporting minimizes runtime for large-scale datasets.
+You can run the analysis from a terminal or an IDE like PyCharm:
+
+```zsh
+python analysis.py --input_dir "/path/to/netcdf/files" --pattern "_.nc"
+
+Arguments:
+--input_dir: Directory containing input NetCDF files.
+--pattern (optional): Filename pattern to select files (default: _.nc).
+```
+
+The script will then
+
+- Import and prepare data from all models
+- Pool and combine data by location
+- Fit GEV distributions for all locations in parallel
+- Compute annual extreme value statistics
+- Optionally generate plots and save per-location reports
+- Store detailed analysis notes and logs in the output directory
+
+**💡 Tip ·** Use `GEVanalysis.py` for large-scale analysis, as it leverages multiprocessing for faster execution.
+
+---
+
+## Data
+
+I am not in a position to disclose the data. Anyone interested in running the script themselves and playing around with
+the original data should please contact
+<a href="mailto:&#102;&#114;&#97;&#110;&#99;&#105;&#115;&#99;&#111;&#46;&#109;&#99;&#97;&#108;&#97;&#102;&#97;&#116;&#64;&#117;&#105;&#98;&#46;&#99;&#97;&#116;">Prof. Francisco Calafat</a>.
 
 ---
 
 # License
 
-MIT License
+This project/repo is licensed under the [Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0)](https://creativecommons.org/licenses/by-nc/4.0/).
