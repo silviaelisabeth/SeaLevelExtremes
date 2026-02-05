@@ -152,6 +152,7 @@ def plot_gev_mu_trend(
     ax.set_ylabel('GEV location parameter', fontsize=fontsize)
 
     plt.tight_layout()
+    fig.canvas.draw()
     plt.show() if display_results else plt.close(fig)
 
     return fig
@@ -500,6 +501,7 @@ def plot_analysis(
     )
 
     plt.tight_layout()
+    fig.canvas.draw()
     
     if save_path:
         Path(save_path).mkdir(parents=True, exist_ok=True)
@@ -594,6 +596,7 @@ def plot_pooled_analysis(
     )
 
     plt.tight_layout()
+    fig.canvas.draw()  
     
     if save_path:
         Path(save_path).mkdir(parents=True, exist_ok=True)
