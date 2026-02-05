@@ -19,7 +19,7 @@ The objectives for this project are:
 ---
 <img width="1440" height="900" alt="Screenshot 2026-02-05 at 16 11 39" src="https://github.com/user-attachments/assets/174b379f-049d-46c8-90e2-f72415fa0e4d" />
 
-You can view the interactive map [here](https://drive.google.com/file/d/1qlvSHVBruSPMDb5cr5vqGndFN1aEjc_T/view?usp=sharing) of all locations here.
+You can view the interactive map of all locations [here](https://drive.google.com/file/d/1qlvSHVBruSPMDb5cr5vqGndFN1aEjc_T/view?usp=sharing).
 
 ---
 
