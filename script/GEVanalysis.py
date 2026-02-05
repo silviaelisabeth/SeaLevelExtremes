@@ -157,25 +157,32 @@ def main(ls_files):
     dic_notes_analysis = {}
 
     dic_data_per_model = import_all_models(ls_files)
-
+    print('Importing data done; next pooling and preparing data...')
+    
     dic_data_per_model, combined, notes_overview = prepare_combined_data(ls_files, dic_data_per_model)
     dic_notes_analysis['data overview'] = notes_overview
-
+    print('Pooling and preparing data done. Next checking locations with missing data...')
+    
     missing_locations = dbf.create_summary_location_w_missing_data(
         dic_data_per_model=dic_data_per_model,
         combined=combined,
         dir_export=os.path.join(path_export, 'exploration')
     )
     dic_notes_analysis['data pooling'] = [f"{len(missing_locations)} locations without any valid data found!"]
+    print(f'Found {len(missing_locations)} locations with missing data → check output folder.')
 
+    print('Rearranging data to sort per location...')    
     dic_data_per_location = extract_location_data(combined)
 
+    print('Rearranging done; next run GEV analysis with pooled data...')
     results, ls_notes = run_gev_parallel(dic_data_per_location)
     dic_notes_analysis['GEV pooled analysis'] = ls_notes
 
+    print('Stationary and non-stationary GEV analysis done with pooled data; next, run annual stationary GEV...')
     results_extended, ls_notes_analysis = run_annual_gev(results)
     dic_notes_analysis['annual_statGEV'] = ls_notes_analysis
 
+    print('All analysis done; next store output...')
     ut.store_analysis_notes(dic_notes_analysis, path_export)
 
     print(f"Analysis completed. Log saved at {log_path}")
