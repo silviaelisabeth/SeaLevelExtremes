@@ -201,3 +201,8 @@ cython_debug/
 
 .html
 *html
+
+.xml
+*.xml
+
+*.iml
