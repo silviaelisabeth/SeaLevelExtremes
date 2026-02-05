@@ -33,6 +33,8 @@ colors = [
     '#66D4CCFF','#33C6BBFF','#008A80FF','#005C55FF'
     ]
 
+_LOCATION_LABELS = None
+
 
 # --------------------------------------------------------------------------
 # UTILITY FUNCTIONS
@@ -80,21 +82,41 @@ def prepare_combined_data(ls_files, dic_data_per_model):
     return dic_data_per_model, combined, notes_overview
 
 
+def set_location_labels(labels):
+    global _LOCATION_LABELS
+    _LOCATION_LABELS = labels
+
+
+def precompute_location_labels(dic_data_per_location):
+    coords = []
+    for _, df in dic_data_per_location.items():
+        lon = df.lon.unique()[0]
+        lat = df.lat.unique()[0]
+        coords.append((round(lon, 6), round(lat, 6)))
+
+    df_coords = DataFrame(coords, columns=["lon", "lat"]).drop_duplicates()
+
+    df_labels = dbf.add_location_labels(df_coords)
+    return {
+        (row.lon, row.lat): " ".join(row.values[2:])
+        for _, row in df_labels.iterrows()
+    }
+
+
 def extract_location_data(combined):
     results = dbf.data_rearrangement(combined=combined, hindcast_start=hindcast_start, hindcast_end=hindcast_end)
     dic_data_per_location, df_messages = dbf.extract_location_data_and_info(results)
     return dic_data_per_location
 
 
-def process_location(location_item):
+def process_location(location_item, location_labels):
     loc_id, df_prepared = location_item
     messages = []
 
     lon_loc = df_prepared.lon.unique()[0]
     lat_loc = df_prepared.lat.unique()[0]
 
-    location_closest = dbf.add_location_labels(DataFrame([lon_loc, lat_loc], index=['lon', 'lat']).T)
-    location_info = ' '.join(location_closest.values[0][2:])
+    location_info = _LOCATION_LABELS.get((round(lon_loc,6), round(lat_loc,6)), "unknown location")
 
     result, ls_warnings = gev.analyze_per_location(
         df_prepared, loc_id, lat_loc, lon_loc, location_info, return_periods
@@ -120,13 +142,15 @@ def process_location(location_item):
     return loc_id, result, messages
 
 
-def run_gev_parallel(dic_data_per_location, n_jobs=None):
+def run_gev_parallel(dic_data_per_location, location_labels, n_jobs=None):
     if n_jobs is None:
         n_jobs = max(1, mp.cpu_count() - 1)
 
+    set_location_labels(location_labels)
+
     items = list(dic_data_per_location.items())
-    out = Parallel(n_jobs=n_jobs, backend='threading', verbose=10)(
-        delayed(process_location)(item) for item in items
+    out = Parallel(n_jobs=n_jobs, backend='loky', verbose=10)(
+        delayed(process_location)(item, location_labels) for item in items
     )
 
     results = {}
@@ -170,8 +194,11 @@ def main(ls_files):
     print('\nRearranging data to sort per location...')    
     dic_data_per_location = extract_location_data(combined)
 
+    print('\nPrecomputing location labels...')
+    location_labels = precompute_location_labels(dic_data_per_location)
+
     print('\nRearranging done; next run GEV analysis with pooled data...')
-    results, ls_notes = run_gev_parallel(dic_data_per_location)
+    results, ls_notes = run_gev_parallel(dic_data_per_location, location_labels)    
     dic_notes_analysis['GEV pooled analysis'] = ls_notes
 
     print('\nStationary and non-stationary GEV analysis done with pooled data; next, run annual stationary GEV...')
