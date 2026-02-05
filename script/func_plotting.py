@@ -170,7 +170,7 @@ def create_parameter_summary(
     ):
     ax.axis('off')
     
-    info_text = r"$\bf{STATIONARY\ GEV}$" "\n"
+    info_text = r"STATIONARY GEV" "\n"
     if stat:
         info_text += f"  μ = {stat['location']:.4f}\n"
         info_text += f"  σ = {stat['scale']:.4f}\n"
@@ -179,14 +179,14 @@ def create_parameter_summary(
         info_text += f"  AIC = {stat['aic']:.1f}\n"
     
     if nonstat:
-        info_text += "\n"r"$\bf{NON-STATIONARY\ GEV}$" "\n"
+        info_text += "\n"r"NON-STATIONARY GEV" "\n"
         info_text += f"  μ(t) = {nonstat['mu0']:.4f} + {nonstat['mu1']:.4f}·t\n"
         info_text += f"  σ = {nonstat['sigma']:.4f}\n"
         info_text += f"  ξ = {nonstat['xi']:.4f}\n"
         info_text += f"  AIC = {nonstat['aic']:.1f}\n"
     
     if comp:
-        info_text += "\n" r"$\bf{SIGNIFICANCE\ TEST}$" "\n"
+        info_text += "\n" r"SIGNIFICANCE TEST" "\n"
         if 'p_value' in comp.keys():
             info_text += f"  p-value = {comp['p_value']:.5f}\n" 
         if 'delta_aic' in comp.keys():
@@ -309,7 +309,7 @@ def plot_model_comparison(
         ax.text(bar.get_x() + bar.get_width()/2., height, f'{aic:.1f}', ha='center', va='bottom')
     
     ax.text(
-        leg_x, leg_y, r"$\bf{>Recommendation:}$" f"\n{comp['recommendation']}",  transform=ax.transAxes, 
+        leg_x, leg_y, r">Recommendation · " f"\n{comp['recommendation']}",  transform=ax.transAxes, 
         fontsize=fontsize*0.75, verticalalignment='top', horizontalalignment='left',
         bbox=dict(boxstyle='round', facecolor=bbox_color, edgecolor=axes_color, linewidth=0.5, alpha=0.3),
         )
