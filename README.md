@@ -1,6 +1,6 @@
 # SeaLevelExtremes · Storm Surge GEV Analysis
 
-Here, a climate data analysis with focus on sea-level extremes shall be conducted. The work is carried out as part of the **CLIMEX project** (_CLIMate influences on EXtreme Sea-level events_) funded by the Spanish MICIU and the European Union with Prof. Francisco XY as Project PI.
+A climate data analysis with focus on sea-level extremes shall be conducted. The work is carried out as part of the **CLIMEX project** (_CLIMate influences on EXtreme Sea-level events_) funded by the Spanish MICIU and the European Union with Prof. Francisco Calafat as Project PI.
 
 The objectives for this project are:
 
@@ -16,6 +16,10 @@ The objectives for this project are:
 
 ![License: CC BY‑NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)
 
+---
+<img width="1440" height="900" alt="Screenshot 2026-02-05 at 16 11 39" src="https://github.com/user-attachments/assets/174b379f-049d-46c8-90e2-f72415fa0e4d" />
+
+You can view the interactive map of all locations [here](https://drive.google.com/file/d/1qlvSHVBruSPMDb5cr5vqGndFN1aEjc_T/view?usp=sharing).
 
 ---
 
