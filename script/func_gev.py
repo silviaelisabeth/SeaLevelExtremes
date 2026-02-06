@@ -644,7 +644,7 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
     return results, dic_notes
 
 
-def process_site_stat_gev(site_id, site_data, return_periods, store_results:bool = True):
+def process_site_stat_gev(site_id, site_data, return_periods, store_results:bool = False):
     ls_notes = []
     grp_per_year = site_data['data'].groupby('year')
     
@@ -685,7 +685,7 @@ def process_site_stat_gev(site_id, site_data, return_periods, store_results:bool
 
     if store_results:
         file_path = site_data.get('file_path_report') or site_data.get('file location')
-        if not file_path:  # fallback
+        if not file_path:
             fallback_dir = Path(tempfile.gettempdir()) / f"site_{site_id}_output"
             fallback_dir.mkdir(parents=True, exist_ok=True)
             file_path = str(fallback_dir)
@@ -711,7 +711,7 @@ def execute_and_store_stat_gev_per_year_mp(results: dict, store_results: bool, r
         delayed(process_site_stat_gev)(site_id, site_data, return_periods, store_results)
         for site_id, site_data in results.items()
     )
-
+    
     dic_notes = {}
     for site_id, site_result, ls_notes in parallel_results:
         results[site_id]['fit results'] = site_result['fit results']

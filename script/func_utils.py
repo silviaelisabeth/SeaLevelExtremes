@@ -7,7 +7,7 @@ from datetime import datetime
 from glob import glob
 from logging import FileHandler, Logger
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 import arabic_reshaper
 import func_plotting as dbplt
@@ -316,6 +316,40 @@ def import_results_from_files_mp(path_export: str) -> dict:
     )
 
     results = {location_id: result for location_id, result in parallel_results}
+    return results
+
+
+def load_pooled_results(base_dir: Union[str, Path]) -> dict[int, dict[str, any]]:
+    """
+    Load pooled results stored in artifact-centric format:
+      - DataFrames: *.parquet (with location_id column)
+      - Python objects: *.pkl (dict keyed by location_id)
+
+    Returns:
+        results: Dict[location_id -> dict of artifact_name -> artifact]
+    """
+    base_dir = Path(base_dir)
+    results: dict[int, dict[str, any]] = {}
+
+    # --- Load Parquet artifacts ---
+    for parquet_file in base_dir.glob("*.parquet"):
+        key = parquet_file.stem
+        df = read_parquet(parquet_file)
+        if "location_id" in df.columns:
+            for loc_id, df_loc in df.groupby("location_id"):
+                results.setdefault(int(loc_id), {})[key] = df_loc.drop(columns="location_id")
+        else:
+            # If DataFrame has no location_id, store as single object
+            results.setdefault(0, {})[key] = df
+
+    # --- Load Pickle artifacts ---
+    for pickle_file in base_dir.glob("*.pkl"):
+        key = pickle_file.stem
+        with open(pickle_file, "rb") as f:
+            obj = pickle.load(f)
+            for loc_id, value in obj.items():
+                results.setdefault(int(loc_id), {})[key] = value
+
     return results
 
 

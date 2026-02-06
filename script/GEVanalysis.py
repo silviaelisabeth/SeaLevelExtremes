@@ -124,7 +124,7 @@ def run_gev_parallel(dic_data_per_location, location_labels, n_jobs=None):
 
 def run_annual_gev(results):
     results_extended, ls_notes_analysis = gev.execute_and_store_stat_gev_per_year_mp(
-        results=results, store_results=True, return_periods=return_periods
+        results=results, store_results=False, return_periods=return_periods
     )
 
     for key, outer_list in ls_notes_analysis.items():
@@ -144,6 +144,8 @@ def main(ls_files, args):
     else:
         ls_jobs = ls_default
     
+    save_plots = args.save_plots
+    
     # ---------------------------------------------------------------------------------------
 
     dic_notes_analysis = {}  
@@ -161,7 +163,7 @@ def main(ls_files, args):
             missing_locations = dbf.create_summary_location_w_missing_data(
                 dic_data_per_model=dic_data_per_model,
                 combined=combined,
-                dir_export=os.path.join(path_export, 'exploration')
+                dir_export=os.path.join(path_export, 'exploration') if save_plots is True else None
             )
             dic_notes_analysis['data pooling'] = [f"{len(missing_locations)} locations without any valid data found!"]
 
@@ -195,20 +197,20 @@ def main(ls_files, args):
         fig_dir = Path(path_child_folder) / "figures"
         fig_dir.mkdir(parents=True, exist_ok=True)
 
-        for loc_id, result in results.items():
-            fig = dbplt.plot_pooled_analysis(
-                result=result, 
-                site_id=loc_id, 
-                periods_evolution=plot_period_evolution, 
-                leg_comparison_x=0.35, leg_comparison_y=0.65, 
-                linestyle_trends=['dashdot', 'dashed', 'solid'], 
-                fontsize=12, figsize=(15, 7.5),
-                )
-    
-            fig.savefig(fig_dir / f"location_{loc_id}.png", dpi=150, bbox_inches="tight")
-            plt.close(fig)
-        print('\nData and Figures successfully saved per artifacts.')        
-
+        if save_plots is True:
+            for loc_id, result in results.items():
+                fig = dbplt.plot_pooled_analysis(
+                    result=result, 
+                    site_id=loc_id, 
+                    periods_evolution=plot_period_evolution, 
+                    leg_comparison_x=0.35, leg_comparison_y=0.65, 
+                    linestyle_trends=['dashdot', 'dashed', 'solid'], 
+                    fontsize=12, figsize=(15, 7.5),
+                    )
+        
+                fig.savefig(fig_dir / f"location_{loc_id}.png", dpi=150, bbox_inches="tight")
+                plt.close(fig)
+        print('\nData (and Figures) successfully saved per artifacts.')        
 
     if 'annual-stationary' in ls_jobs:
         try:
@@ -218,11 +220,24 @@ def main(ls_files, args):
         except NameError:
             path_import = os.path.join(path_export, 'gev_analysis','pooled/')
             print(f'\nImport data from folder {path_import}...')
-            results = ut.import_results_from_files_mp(path_import)
+            # results = ut.import_results_from_files_mp(path_import)
+            results = ut.load_pooled_results(path_import)
     
         print('\nRun annual stationary GEV analysis...')
         results_extended, ls_notes_analysis = run_annual_gev(results)
         dic_notes_analysis['annual_statGEV'] = ls_notes_analysis
+        
+        today_ = str(datetime.today().date().isoformat())   
+        path_child_folder = Path(path_export) / "gev_analysis" / "pooled" / f"{today_}"
+        ut.save_pooled_results(
+            results={
+                site_id: {"fit results": site_data["fit results"]}
+                for site_id, site_data in results_extended.items()
+                if "fit results" in site_data
+                },
+            data=[], 
+            base_dir=path_child_folder
+        )
 
     if 'regression' in ls_jobs:
         print('\nImport data from file if not available')
@@ -271,11 +286,15 @@ if __name__ == "__main__":
         help="Started list of jobs to execute; available jobs are: pooled, annual-stationary, regression, map"
     )
     
+    parser.add_argument(
+        "--save_plots", type=bool, default=False,
+        help="Boolean whether to save figures/panels in output folder or not (time-consuming!)"
+    )    
+    
     args = parser.parse_args()
 
     ls_files = sorted(glob.glob(os.path.join(args.input_dir, args.pattern)))
     if not ls_files:
         raise FileNotFoundError(f"No files found in {args.input_dir} matching {args.pattern}")
 
-    main(ls_files, args)
     main(ls_files, args)
