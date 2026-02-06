@@ -173,7 +173,7 @@ def run_annual_gev(results):
     return results_extended, ls_notes_analysis
 
 
-def main(ls_files):
+def main(ls_files, args):
     logger, fh, log_path = initialize_logger()
     dic_notes_analysis = {}
 
@@ -255,4 +255,4 @@ if __name__ == "__main__":
     if not ls_files:
         raise FileNotFoundError(f"No files found in {args.input_dir} matching {args.pattern}")
 
-    main(ls_files)
+    main(ls_files, args)

@@ -366,17 +366,20 @@ def plot_level_evolution(
     """
     
     x = arange(len(periods))
-    
     def extract_level_and_ci(entry, period):
-        if entry is None or 'values' not in entry:
+        if entry is None or not isinstance(entry, dict) or 'values' not in entry or entry['values'] is None:
             return nan, 0, 0
+
         lvl = entry['values'].get(period, None)
         if lvl is None:
             return nan, 0, 0
+        
         if isinstance(lvl, dict):
-            return (lvl.get('return_level', nan), 
-                    lvl.get('return_level', nan) - lvl.get('CI_lower', 0), 
-                    lvl.get('CI_upper', 0) - lvl.get('return_level', nan))
+            return (
+                lvl.get('return_level', nan),
+                lvl.get('return_level', nan) - lvl.get('CI_lower', 0),
+                lvl.get('CI_upper', 0) - lvl.get('return_level', nan)
+            )
         else:
             return lvl, 0, 0
 
