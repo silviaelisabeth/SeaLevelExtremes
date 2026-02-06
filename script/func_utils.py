@@ -5,41 +5,19 @@ import re
 import sys
 from datetime import datetime
 from glob import glob
-from typing import Optional, Tuple
+from logging import FileHandler, Logger
+from pathlib import Path
+from typing import Optional
 
 import arabic_reshaper
-import func_gev as gev
 import func_plotting as dbplt
 from bidi.algorithm import get_display
 from joblib import Parallel, delayed
 from numpy import isnan, unique
-from pandas import DataFrame, read_parquet
+from pandas import DataFrame, concat, read_parquet
 
 
-def sanitize_filename(s):
-    return re.sub(r'[<>:"/\\|?*]', '_', s)
-
-
-def contains_arabic(text: str) -> bool:
-    return any(
-        '\u0600' <= ch <= '\u06FF' or
-        '\u0750' <= ch <= '\u077F' or
-        '\u08A0' <= ch <= '\u08FF'
-        for ch in text
-    )
-
-
-def normalize_location_text(text: str) -> str:
-    """
-    Automatically reshape Arabic text if present.
-    Leaves all other scripts untouched.
-    """
-    if contains_arabic(text):
-        return get_display(arabic_reshaper.reshape(text))
-    return text
-
-
-def initialize_logger(log_filename, log_dir:str="../logs"):
+def initialize_logger_v1(log_filename:str, log_dir:str="../logs"):
     os.makedirs(log_dir, exist_ok=True)
 
     log_path = os.path.join(log_dir, log_filename)
@@ -73,7 +51,46 @@ def initialize_logger(log_filename, log_dir:str="../logs"):
     return orig_stdout, orig_stderr, fh, logger, log_path
 
 
-def adding_plot_and_text(message, ls_messages, print_msg):
+def initialize_logger_v2(dir_logs:str, log_name:str=None)->tuple[Logger,FileHandler,str]:
+    """
+    Returns a simple logger that writes to a timestamped file in path_logs.
+    """
+    if log_name is None:
+        log_name = f"LOGS_GEVAnalysis_{datetime.now():%Y%m%d_%H%M%S}.log"
+    log_path = os.path.join(dir_logs, log_name)
+    logger = logging.getLogger('gev_analysis')
+    logger.setLevel(logging.INFO)
+    fh = logging.FileHandler(log_path)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+    return logger, fh, log_path
+
+
+def sanitize_filename(s:str)->str:
+    return re.sub(r'[<>:"/\\|?*]', '_', s)
+
+
+def contains_arabic(text: str) -> bool:
+    return any(
+        '\u0600' <= ch <= '\u06FF' or
+        '\u0750' <= ch <= '\u077F' or
+        '\u08A0' <= ch <= '\u08FF'
+        for ch in text
+    )
+
+
+def normalize_location_text(text: str) -> str:
+    """
+    Automatically reshape Arabic text if present.
+    Leaves all other scripts untouched.
+    """
+    if contains_arabic(text):
+        return get_display(arabic_reshaper.reshape(text))
+    return text
+
+
+def adding_plot_and_text(message:str, ls_messages:list[str], print_msg:bool):
     ls_messages.append(message)
     if print_msg:
         print(message)
@@ -117,7 +134,7 @@ def prepare_pooled_data_per_location(
     return data_hindcast, message
 
 
-def prepare_pooled_data(dic_data: dict, hindcast_start:int, hindcast_end: int) -> Tuple[dict, str]:
+def prepare_pooled_data(dic_data: dict, hindcast_start:int, hindcast_end: int) -> tuple[dict, str]:
         """Calculate target years and filter to hindcast period."""
         dic_data_hindcast = {}
         for loc_id, data in dic_data.items():
@@ -233,18 +250,13 @@ def save_location_results(
         )
     
     print('export path:', loc_dir)
-    dbplt.plot_pooled_analysis(
+    _ = dbplt.plot_pooled_analysis(
         result=result_location, 
         site_id=location_id, 
         periods_evolution = plot_period_evolution, 
         save_path=loc_dir,
         box_parameters_x=0.05, box_parameters_y=0.95, width_bar_returns=0.35,
         leg_comparison_x=0.35, leg_comparison_y=0.65, linespace=1.5,
-        color_markers='#99E3DDFF', colors_trends='#1D141BFF', 
-        colors_models=['#B887ADFF', '#008A80FF'],
-        colors_return_levels=['#008A80FF','#CAA5C2FF'],
-        bbox_color='#F5F5F5FF', axes_color='#333333', 
-        linestyle_trends=['dashdot', 'dashed', 'solid'], 
         fontsize=12, figsize=(15, 7.5),
         display_results=display_results
         )
@@ -307,7 +319,7 @@ def import_results_from_files_mp(path_export: str) -> dict:
     return results
 
 
-def hex_to_rgba(hex_color):
+def hex_to_rgba(hex_color:str)->list[int]:
     hex_color = hex_color.lstrip('#')
     r = int(hex_color[0:2], 16)
     g = int(hex_color[2:4], 16)
@@ -353,3 +365,39 @@ def store_analysis_notes(dic_notes_analysis: dict, path_export: str) -> None:
     print(f"Full log written to {file_name}")
     print(f"Full log written to {file_name}")
     print(f"Full log written to {file_name}")
+
+
+def save_pooled_results(results: dict[int, dict], data, base_dir: str) -> None:
+    """
+    results: dict[location_id -> result_location dict]
+    """
+
+    base_dir = Path(base_dir)
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    parquet_buffers = {}   
+    pickle_buffers = {}   
+
+    for loc_id, result in results.items():
+        for key, value in result.items():
+
+            if isinstance(value, DataFrame):
+                df = value.copy()
+                df["location_id"] = loc_id
+                parquet_buffers.setdefault(key, []).append(df)
+
+            else:
+                pickle_buffers.setdefault(key, {})[loc_id] = value
+
+    for key, dfs in parquet_buffers.items():
+        df_all = concat(dfs, ignore_index=True)
+
+        df_all.to_parquet(base_dir / f"{key}.parquet", index=False)
+    
+    for key, obj in pickle_buffers.items():
+        with open(base_dir / f"{key}.pkl", "wb") as f:
+            pickle.dump(obj, f, protocol=5)
+
+    df_all_data = concat(data, ignore_index=True)
+    df_all_data.to_parquet(base_dir / "data.parquet", index=False)
+

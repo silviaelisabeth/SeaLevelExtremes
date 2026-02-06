@@ -2,10 +2,9 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Optional
 
 import func_plotting as dbplt
-import func_preparation as dbf
 import func_utils as ut
 import statsmodels.api as sm
 from IPython.display import Markdown, display
@@ -79,7 +78,9 @@ def extract_annual_maxima_at_location(
             ).dropna()
 
 
-def fit_stationary_gev(data: ndarray, year:Optional[int]=None) -> Tuple[Optional[dict], list[str]]:
+def fit_stationary_gev(
+    data: ndarray, year:Optional[int]=None, print_msg:bool=False
+    ) -> tuple[Optional[dict], list[str]]:
     """
     Fit stationary GEV using Maximum Likelihood Estimation.
     
@@ -101,7 +102,8 @@ def fit_stationary_gev(data: ndarray, year:Optional[int]=None) -> Tuple[Optional
             message = f"Warning: Only {len(data)} observations in {year}. Need at least 10 for reliable GEV fit."
         else:
             message = f"Warning: Only {len(data)} observations. Need at least 10 for reliable GEV fit."
-        print(message)
+        if print_msg:
+            print(message)
         ls_notes.append(message)
         return None, ls_notes
     
@@ -142,8 +144,8 @@ def fit_stationary_gev(data: ndarray, year:Optional[int]=None) -> Tuple[Optional
 
 
 def fit_nonstationary_gev(
-    years: ndarray, data: ndarray, trend_params: str = 'location'
-    ) -> Tuple[Dict, list]:
+    years: ndarray, data: ndarray, trend_params: str = 'location', print_msg:bool=False
+    ) -> tuple[dict, list]:
     """
     Fit non-stationary GEV where parameters vary linearly with time.
     
@@ -166,7 +168,8 @@ def fit_nonstationary_gev(
     ls_notes = []
     if len(data) < 20:
         message = f"Warning: Non-stationary GEV needs ≥20 obs. Have {len(data)}."
-        print(message)
+        if print_msg:
+            print(message)
         ls_notes.append(message)
         return None, ls_notes
     
@@ -266,7 +269,7 @@ def fit_nonstationary_gev(
         return None, ls_notes
 
 
-def compare_models(stationary: Dict, nonstationary: Dict) -> Dict:
+def compare_models(stationary: dict, nonstationary: dict) -> dict:
     """
     Compare stationary vs non-stationary GEV using likelihood ratio test.
     
@@ -311,9 +314,8 @@ def compare_models(stationary: Dict, nonstationary: Dict) -> Dict:
 
 
 def calculate_return_levels(
-    gev_params: Dict, return_periods: list, year: Optional[float] = None,
-    cov_matrix: Optional[ndarray] = None, alpha: float = 0.05
-    ) -> Dict:
+    gev_params: dict, return_periods: list, year: Optional[float] = None,
+    cov_matrix: Optional[ndarray] = None,) -> dict:
     """
     Calculate return levels from GEV parameters, optionally with uncertainty.
     """
@@ -383,9 +385,7 @@ def calculate_return_levels(
     return results
 
 
-def calculate_return_levels_wo_ci(
-    gev_params: Dict, return_periods: list, year: Optional[float] = None
-    ) -> Dict:
+def calculate_return_levels_wo_ci(gev_params: dict, return_periods: list, year: Optional[float] = None) -> dict:
     """
     Calculate return levels from GEV parameters.
     
@@ -616,7 +616,7 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
                     gev_params=gev_stationary, return_periods=return_periods, cov_matrix=cov_stationary
                 )
             else:
-                message = f'\tskipping Return Level Calculation, no stationary GEV for {year}...'
+                message = f'\tSkipping Return Level Calculation, no stationary GEV for {year}...'
                 ls_notes.append(message)
                 print(message)
                 rl_stationary = None
@@ -638,7 +638,7 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
                 file_path = results[site_id]['file location']
             file_name = os.path.join(file_path, f"statGEV_per_year.parquet")
             df_stat_gev_per_year.to_parquet(file_name)
-            print(f'output stored in {file_name}')
+            print(f'Output stored in {file_name}')
             
         dic_notes[site_id] = ls_notes       
     return results, dic_notes
@@ -744,7 +744,7 @@ def weighted_least_square_regression_annual_location(global_statgev_scale, globa
 
 def analyze_per_location(
     data_hindcast:DataFrame, site_id: int, lat: float, lon: float, location_info: str, return_periods: list
-    )-> Tuple[dict, list]:
+    )-> tuple[dict, list]:
     """
     Complete analysis for one model-location combination.
     Fits both stationary and non-stationary GEV.
@@ -953,7 +953,7 @@ def create_gev_report_per_location(
             save_path = None
             
         # -----------------------------------------------------------------------------------------------------------
-        dbplt.plot_pooled_analysis(
+        fig = dbplt.plot_pooled_analysis(
             result=result_location, 
             lat_lon_tuple=result_location['location'], 
             location_info=result_location['location info'][0],
@@ -974,7 +974,7 @@ def create_gev_report_per_location(
         return full_file_path
 
 
-def store_report_stationary_gev_per_year(site_data:dict):
+def store_report_stationary_gev_per_year(site_data:dict) -> None:
     if 'location info' in site_data:
         site_data['location info'] = str(site_data['location info'])
 

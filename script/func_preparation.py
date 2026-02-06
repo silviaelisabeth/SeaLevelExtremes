@@ -1,31 +1,37 @@
-import pickle
+import os
 import random
 from pathlib import Path
-from time import sleep
-from typing import Optional, Tuple
+from typing import Optional
 
 import func_plotting as dbplt
 import func_utils as ut
 import reverse_geocoder as rg
 import xarray as xr
-from geopy.exc import GeocoderTimedOut
-from geopy.geocoders import Nominatim
 from joblib import Parallel, delayed
 from numpy import allclose, ndarray
 from pandas import DataFrame, MultiIndex, concat
-from tqdm import tqdm
+from xarray import DataArray, Dataset
 
 #!!!ToDo: adding typing, remove unused functions...
 
 
-def import_data_from_file(file):
+def import_all_models(ls_files:list) -> dict[str,dict]:
+    dic_data_per_model = dict()
+    for en, file in enumerate(ls_files):
+        model_name = os.path.basename(file).split('.nc')[0].split('_')[-1]
+        print(f'Importing data from model {model_name} ({en+1}/{len(ls_files)})...')
+        model_name, ds_model = import_data_from_file(file)
+        dic_data_per_model[model_name] = {'raw data': ds_model}
+    return dic_data_per_model
+
+
+def import_data_from_file(file:str)->tuple[str,Dataset]:
     model_name = file.split('/')[-1].split('Annual_max_')[-1].split('.')[0]
     ds = xr.open_dataset(file, engine="netcdf4")
-    
     return model_name, ds
 
 
-def bias_correction(ds):
+def bias_correction(ds: Dataset) ->Dataset:
     return xr.apply_ufunc(
         lambda v, i: v[i], ds["annualMax"], ds["bc_flag"].astype(int) - 1,
         input_core_dims=[["bc"], []], output_core_dims=[[]],
@@ -34,8 +40,8 @@ def bias_correction(ds):
 
 
 def verify_bias_correction(
-    ds_model, 
-    annualMax_pref,
+    ds_model:Dataset, 
+    annualMax_pref:Dataset,
     ) -> None:
     site = random.randint(0, ds_model.sites.shape[0]-1)
     sample = random.randint(0, ds_model.sample.shape[0]-1)
@@ -51,9 +57,9 @@ def verify_bias_correction(
 
 
 def select_valid_data(
-    ds_model, 
-    annualMax_pref
-    ):
+    ds_model:Dataset, 
+    annualMax_pref:Dataset,
+    )->tuple[Dataset,int, int,float]:
     data_valid = annualMax_pref.where(ds_model.model_valid == True, drop=True)
 
     sites_valid = data_valid.shape[-1]
@@ -63,209 +69,41 @@ def select_valid_data(
     return data_valid, sites_valid, sites_total, rate_invalid
 
 
-def locations_label_lookup_with_cache(
-    locations: DataFrame, cache_file: str = "geocoding_cache.pkl", max_retries: int = 3, delay: float = 1.5,
-    user_agent: str = "storm_surge_analysis"
-    ):
-    """
-    Geocode locations with caching to resume after interruptions.
+def prepare_combined_data(ls_files:list[str], dic_data_per_model:dict)->tuple[dict,Dataset,list]:
+    dic_data_per_model = data_preparation(ls_files=ls_files, dic_data_per_model=dic_data_per_model)
+    notes_overview = ut.create_data_overview(dic_data_per_model, ls_files)
     
-    If the script fails or is interrupted, you can restart and it will
-    continue from where it left off.
-    
-    Parameters:
-    -----------
-    locations : DataFrame
-        Must have 'lat' and 'lon' columns
-    cache_file : str
-        File to save progress (default: "geocoding_cache.pkl")
-    max_retries : int
-        Maximum retry attempts per location
-    delay : float
-        Delay between requests in seconds
-    user_agent : str
-        Custom user agent for the geocoder
-        
-    Returns:
-    --------
-    list : Location objects (or None for failures)
-    """
-    geolocator = Nominatim(user_agent=user_agent, timeout=10)
-    
-    cache_path = Path(cache_file)
-    if cache_path.exists():
-        with open(cache_file, 'rb') as f:
-            cache = pickle.load(f)
-    else:
-        cache = {}
-    
-    locations_label = [None] * len(locations)
-    failed_indices = []
-        
-    try:
-        for ix in tqdm(locations.index, desc="\t\tGeocoding"):
-            if ix in cache:
-                locations_label[ix] = cache[ix]
-                continue
-            
-            lat = locations.loc[ix, 'lat']
-            lon = locations.loc[ix, 'lon']
-            
-            location = None
-            
-            for attempt in range(max_retries):
-                try:
-                    location = geolocator.reverse((lat, lon), exactly_one=True, timeout=10)
-                    break  
-                    
-                except GeocoderTimedOut:
-                    if attempt < max_retries - 1:
-                        sleep(2 ** attempt) 
-                        continue
-                    else:
-                        failed_indices.append(ix)
-                        
-                except GeocoderServiceError:
-                    failed_indices.append(ix)
-                    break
-                    
-                except Exception as e:
-                    print(f"\nError at index {ix}: {e}")
-                    failed_indices.append(ix)
-                    break
-            
-            locations_label[ix] = location
-            cache[ix] = location 
-            
-            if (ix + 1) % 50 == 0:
-                with open(cache_file, 'wb') as f:
-                    pickle.dump(cache, f)
-            
-            sleep(delay)
-    
-    except KeyboardInterrupt:
-        print("\nInterrupted by user. Saving progress...")
-        with open(cache_file, 'wb') as f:
-            pickle.dump(cache, f)
-        print(f"✓ Progress saved to {cache_file}")
-        print(f"  Run again to continue from index {ix}")
-        raise
-    
-    with open(cache_file, 'wb') as f:
-        pickle.dump(cache, f)
-    
-    success_count = sum(1 for loc in locations_label if loc is not None)
-    print(f"\n✓ Geocoding complete:")
-    print(f"  Success: {success_count}/{len(locations)}")
-    print(f"  Failed: {len(failed_indices)}")
-    
-    return locations_label
+    # Combine per-model data into one xarray
+    da_list = []
+    for model_name, dic_model in dic_data_per_model.items():
+        da = dic_model['valid data']
+        da_loc = sites_to_location(da).expand_dims(model=[model_name])
+        da_list.append(da_loc)
+    combined = xr.concat(da_list, dim="model", join="outer")
+
+    return dic_data_per_model, combined, notes_overview
 
 
-def locations_label_lookup_batched(
-    locations: DataFrame,
-    batch_size: int = 100,
-    cache_file: str = "geocoding_cache.pkl",
-    delay: float = 1.5
-    ):
-    """
-    Geocode locations in batches with caching by (lat, lon).
-
-    Parameters
-    ----------
-    locations : pd.DataFrame
-        Must have 'lat' and 'lon' columns.
-    batch_size : int
-        Number of locations to process per batch.
-    cache_file : str
-        Path to cache file for saving progress.
-    delay : float
-        Delay in seconds between geocoding requests.
-
-    Returns
-    -------
-    List
-        List of geopy Location objects or None for failures, in the same order as `locations`.
-    """
-    
-    cache_path = Path(cache_file)
-    if cache_path.exists():
-        with open(cache_file, 'rb') as f:
-            cache = pickle.load(f)
-        print(f"\t✓ Loaded {len(cache)} cached results")
-    else:
-        cache = {}
-
-    geolocator = Nominatim(user_agent="storm_surge_analysis", timeout=10)
-    
-    total_batches = (len(locations) + batch_size - 1) // batch_size
-
-    for batch_num in range(total_batches):
-        start_idx = batch_num * batch_size
-        end_idx = min((batch_num + 1) * batch_size, len(locations))
-        print(f"\tProcessing batch {batch_num + 1}/{total_batches} (locations {start_idx}-{end_idx})")
-        
-        for ix in tqdm(range(start_idx, end_idx), desc=f"\tBatch {batch_num + 1}"):
-            lat = locations.loc[ix, 'lat']
-            lon = locations.loc[ix, 'lon']
-            key = (lat, lon)
-            
-            if key in cache:
-                continue 
-
-            try:
-                location = geolocator.reverse((lat, lon), exactly_one=True)
-                cache[key] = location
-            except Exception as e:
-                print(f"\nError at {key}: {e}")
-                cache[key] = None
-            
-            sleep(delay)
-        
-        with open(cache_file, 'wb') as f:
-            pickle.dump(cache, f)
-        print(f"\t✓ Batch {batch_num + 1} saved to cache")
-    
-    locations_label = [cache.get((lat, lon)) for lat, lon in zip(locations['lat'], locations['lon'])]
-    
-    success_count = sum(1 for loc in locations_label if loc is not None)
-    print(f"\t✓ All batches complete: {success_count}/{len(locations)} successful")
-    
-    return locations_label
+def extract_location_data(combined:Dataset, hindcast_start:int, hindcast_end:int)->dict:
+    results = data_rearrangement(combined=combined, hindcast_start=hindcast_start, hindcast_end=hindcast_end)
+    dic_data_per_location, _ = extract_location_data_and_info(results)
+    return dic_data_per_location
 
 
-def locations_label_lookup(locations: DataFrame):
-    geolocator = Nominatim(user_agent="storm_surge_analysis", timeout=10)
-    
-    locations_label = []
-    for ix in locations.index:
-        lat = locations.loc[ix, 'lat']
-        lon = locations.loc[ix, 'lon']
-        
-        try:
-            location = geolocator.reverse((lat, lon), exactly_one=True)
-        except GeocoderTimedOut:
-            print(f"Timeout at index {ix}, retrying...")
-            
-            sleep(1)
-            location = geolocator.reverse((lat, lon), exactly_one=True)
-        
-        locations_label.append(location)
-        sleep(1) 
-    return locations_label
+def precompute_location_labels(dic_data_per_location:dict[str,DataFrame]) ->dict:
+    coords = []
+    for _, df in dic_data_per_location.items():
+        lon = df.lon.unique()[0]
+        lat = df.lat.unique()[0]
+        coords.append((round(lon, 6), round(lat, 6)))
 
+    df_coords = DataFrame(coords, columns=["lon", "lat"]).drop_duplicates()
 
-def locations_label_lookup_simple(lat: float, lon: float):
-    geolocator = Nominatim(user_agent="storm_surge_analysis", timeout=10)
-    
-    try:
-        location = geolocator.reverse((lat, lon), exactly_one=True)
-    except GeocoderTimedOut:
-        print(f"Timeout, retrying...")
-        sleep(1)
-        location = geolocator.reverse((lat, lon), exactly_one=True)
-        
-    return location
+    df_labels = add_location_labels(df_coords)
+    return {
+        (row.lon, row.lat): " ".join(row.values[2:])
+        for _, row in df_labels.iterrows()
+    }
 
 
 def add_location_labels(locations: DataFrame) -> DataFrame:
@@ -291,10 +129,8 @@ def add_location_labels(locations: DataFrame) -> DataFrame:
         'admin1': 'admin1',
         'cc': 'country'
     })
-    
-    locations_labeled = concat([locations.reset_index(drop=True), df_labels[['city','admin1','country']]], axis=1)
-    
-    return locations_labeled
+        
+    return concat([locations.reset_index(drop=True), df_labels[['city','admin1','country']]], axis=1)
 
 
 def prepare_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> DataFrame:
@@ -314,7 +150,7 @@ def prepare_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> Data
         return data_hindcast
     
 
-def sites_to_location(da):
+def sites_to_location(da:DataArray)->DataArray:
     """
     Replace arbitrary 'sites' index with a geographic location index (lon, lat).
 
@@ -340,7 +176,7 @@ def sites_to_location(da):
     return da
 
 
-def process_model(file):
+def process_model(file:str)->tuple[str,Dataset,tuple[int,int,float]]:
     model_name, ds_model = import_data_from_file(file) 
     ds_model_corrected = bias_correction(ds_model)
     data_valid, sites_valid, sites_total, rate_invalid = select_valid_data(
@@ -361,8 +197,10 @@ def data_preparation(ls_files:list[str], dic_data_per_model:dict) -> dict:
     return dic_data_per_model
 
 
-def process_location(loc_ex, combined, hindcast_start, hindcast_end):
-    data_at_location_ = combined[:, :, :, loc_ex].to_dataframe().dropna().reset_index().rename(columns={'annualMax':'storm_surge'})
+def process_location(loc_ex:int, combined:Dataset, hindcast_start:int, hindcast_end:int)->tuple[int,dict,str]:
+    data_at_location_ = combined[:, :, :, loc_ex].to_dataframe().dropna().reset_index()
+    data_at_location_ = data_at_location_.rename(columns={'annualMax':'storm_surge'})
+    
     data_at_location, message = ut.prepare_pooled_data_per_location(
         loc_ex=loc_ex,
         data=data_at_location_,
@@ -372,7 +210,7 @@ def process_location(loc_ex, combined, hindcast_start, hindcast_end):
     return loc_ex, data_at_location, message
 
 
-def data_rearrangement(combined, hindcast_start, hindcast_end):
+def data_rearrangement(combined:Dataset, hindcast_start:int, hindcast_end:int)->dict:
     results = Parallel(n_jobs=-1, backend='loky', verbose=10)(
         delayed(process_location)(
             loc_ex=loc_ex, combined=combined, hindcast_start=hindcast_start, hindcast_end=hindcast_end
@@ -382,7 +220,7 @@ def data_rearrangement(combined, hindcast_start, hindcast_end):
     return results
 
 
-def extract_location_data_and_info(results):
+def extract_location_data_and_info(results:dict)->tuple[dict,DataFrame]:
     dic_data_per_location = {}
     messages = []
     for loc_ex, data_at_location, message in results:
@@ -417,7 +255,7 @@ def get_location_w_missing_data(
     model_label:str, 
     dic_data_per_model: dict[str, dict[str, DataFrame]],
     combined: ndarray  
-) -> Tuple[DataFrame, DataFrame]:
+) -> tuple[DataFrame, DataFrame]:
     df_geocoordinates_raw = DataFrame([
         dic_data_per_model[model_label]['raw data'].lat.values,
         dic_data_per_model[model_label]['raw data'].lon.values
@@ -438,7 +276,7 @@ def get_location_w_missing_data(
     return missing_locations, df_geocoordinates_combined
 
 
-def create_summary_location_w_missing_data(dic_data_per_model:dict, combined, dir_export:Optional[str]):
+def create_summary_location_w_missing_data(dic_data_per_model:dict, combined, dir_export:Optional[str])->DataFrame:
     model_label = list(dic_data_per_model.keys())[0]
 
     missing_locations, df_valid = get_location_w_missing_data(model_label, dic_data_per_model, combined)

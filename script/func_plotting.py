@@ -6,9 +6,9 @@ from typing import Optional
 import func_utils as ut
 import matplotlib
 import matplotlib.gridspec as gridspec
-import matplotlib.pyplot as plt
 import pydeck as pdk
 import seaborn as sns
+from IPython.display import display
 from matplotlib import rcParams
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
@@ -16,7 +16,8 @@ from numpy import arange, array, nan, ndarray, sqrt
 from pandas import DataFrame
 from statsmodels.regression.linear_model import RegressionResultsWrapper
 
-matplotlib.use("Agg")  # Must be done before importing pyplot
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 rcParams['font.family'] = [
     'Noto Sans',
@@ -37,8 +38,7 @@ def create_map_location_missing_valid_data(
     dir_export:str='../output/exploration',
     store_map:bool=False,
     display_map:bool=False
-    ):
-    from IPython.display import display
+    ) -> None:
 
     missing_locations['info'] = "Missing data"
 
@@ -169,7 +169,7 @@ def create_parameter_summary(
     fontsize: float = 9, 
     linespace: float = 1.5,
     bbox: Optional[dict]=dict(boxstyle='round', facecolor='#F5F5F5FF', alpha=0.5)
-    ):
+    ) -> None:
     ax.axis('off')
     
     info_text = r"STATIONARY GEV" "\n"
@@ -202,6 +202,7 @@ def create_parameter_summary(
 
 def plot_annual_max_with_trends(
     ax:Axes, 
+    loc_id:int,
     annual_max:DataFrame, 
     nonstat: Optional[dict],
     comp: Optional[dict],
@@ -258,7 +259,7 @@ def plot_annual_max_with_trends(
     else:
         pval_str = "None" if pval is None else f"{pval:.2f}"
         print(
-            f"\t WARNING! Skipping non-stationary with model comparison {pval_str} "
+            f"\t WARNING! Skipping non-stationary with model comparison {pval_str} for location {loc_id} "
             f"(threshold for non-stationary 0.05)"
         )
         skip_non_stat = True
@@ -444,6 +445,7 @@ def plot_level_evolution(
         "Return Levels Stationary incl. Uncertainty", fontsize=fontsize
     )
 
+
 def plot_analysis(
     results: dict,
     model: str,
@@ -498,9 +500,9 @@ def plot_analysis(
     # ----------------------------------------------------------------------------
     # Plot TOP-LEFT: Annual maxima with trends
     skip_non_stat = plot_annual_max_with_trends(
-        annual_max=annual_max, return_levels=result['return_levels'], nonstat=nonstat, comp=comp, 
+        annual_max=annual_max, return_levels=result['return_levels'], nonstat=nonstat, comp=comp,
         ls_periods=periods_evolution, colors_trends=colors_trends, axes_color=axes_color, color_markers=color_markers, 
-        linestyle_trends=linestyle_trends, ms=6, fontsize=fontsize, ax=ax_top_left, 
+        linestyle_trends=linestyle_trends, ms=6, fontsize=fontsize, ax=ax_top_left, loc_id=location['site_id'], 
         )
 
     # ----------------------------------------------------------------------------   
@@ -569,7 +571,7 @@ def plot_pooled_analysis(
     figsize: tuple[float, float] = (15, 8),
     linespace: float = 1.5,
     display_results: bool = False,
-    ) -> None:
+    ) -> Figure:
     """Create comprehensive visualization."""
     location_info = result['location info']
     lat, lon = str(location_info['lat'].round(3)), str(location_info['lon'].round(3))
@@ -646,3 +648,6 @@ def plot_pooled_analysis(
         plt.savefig(file_path, dpi=300, bbox_inches='tight') 
             
     plt.show() if display_results else plt.close(fig)
+    
+    return fig
+    return fig
