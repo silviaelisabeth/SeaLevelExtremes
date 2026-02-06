@@ -240,7 +240,8 @@ def main(ls_files, args):
         )
 
     if 'regression' in ls_jobs:
-        print('\nImport data from file if not available')
+        print('\nTO be continued... Import data from files if not available')
+        pass
         results_extended_list = Parallel(n_jobs=-1, backend='threading')(
             delayed(process_location)(site_id, dic_location, display_results, save_regression_summary)
             for site_id, dic_location in results_extended.items()
