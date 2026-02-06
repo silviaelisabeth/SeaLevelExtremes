@@ -724,6 +724,46 @@ def analyze_per_location(
     }, ls_notes
 
 
+def process_location(site_id, dic_location, display_results, save_regression_summary):
+    df_stat_gev_per_year = dic_location['fit results']['gev_stationary']['analysis_per_year'].dropna()
+    df = df_stat_gev_per_year.reset_index().rename(columns={'index': 'year'})
+
+    global_statgev_shape = dic_location['fit results']['gev_stationary']['shape']
+    global_statgev_scale = dic_location['fit results']['gev_stationary']['scale']
+
+    df, wls_delta, weights, y_pred, year_grid, year_mean = weighted_least_square_regression_annual_location(
+        global_statgev_scale, global_statgev_shape, df
+    )
+    dic_location['WLSdelta'] = dict({'summary': wls_delta, 'weights': weights})
+
+    fig = dbplt.plot_gev_mu_trend(
+        df=df,
+        weights=weights,
+        year_grid=year_grid,
+        year_mean=year_mean,
+        y_pred=y_pred,
+        wls_delta=wls_delta,
+        nonstat_years=dic_location['data'].year.values.astype(int),
+        nonstat=dic_location['fit results']['gev_nonstationary'],
+        display_results=display_results,
+        colors_reg=['#333333FF', '#C88D35FF'],
+        markers_color='#99E3DDFF'
+    )
+
+    if save_regression_summary and ('file location' in dic_location or 'file_path_report' in dic_location):
+        save_path = dic_location.get('file location', dic_location.get('file_path_report'))
+        with open(save_path + '/WLSdelta_summary.html', 'w') as f:
+            f.write(wls_delta.summary().as_html())
+        
+        lat = str(dic_location['location info']['lat'].round(3))
+        lon = str(dic_location['location info']['lon'].round(3))
+        country = dic_location['location info']['description'].split(',')[-1].strip()  
+        file_name = f"/GEVTrendAnalysis_location_{site_id}_{country}_{lat}|{lon}.png"
+        fig.savefig(save_path + file_name, dpi=300, bbox_inches='tight')
+
+    return site_id, dic_location
+
+
 def create_gev_written_report_per_location(
     result_location: dict, location_in_example: tuple[str, float, float], ls_messages:list[str], print_msg:bool=True
     ) -> list[str]:

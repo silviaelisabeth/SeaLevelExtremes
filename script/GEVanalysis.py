@@ -36,6 +36,8 @@ colors = [
 _LOCATION_LABELS = None
 
 
+ls_default = ['pooled', 'annual-stationary', 'regression']
+
 # --------------------------------------------------------------------------
 # UTILITY FUNCTIONS
 # --------------------------------------------------------------------------
@@ -105,11 +107,11 @@ def precompute_location_labels(dic_data_per_location):
 
 def extract_location_data(combined):
     results = dbf.data_rearrangement(combined=combined, hindcast_start=hindcast_start, hindcast_end=hindcast_end)
-    dic_data_per_location, df_messages = dbf.extract_location_data_and_info(results)
+    dic_data_per_location, _ = dbf.extract_location_data_and_info(results)
     return dic_data_per_location
 
 
-def process_location(location_item, location_labels):
+def process_location(location_item):
     loc_id, df_prepared = location_item
     messages = []
 
@@ -150,7 +152,7 @@ def run_gev_parallel(dic_data_per_location, location_labels, n_jobs=None):
 
     items = list(dic_data_per_location.items())
     out = Parallel(n_jobs=n_jobs, backend='loky', verbose=10)(
-        delayed(process_location)(item, location_labels) for item in items
+        delayed(process_location)(item) for item in items
     )
 
     results = {}
@@ -167,7 +169,7 @@ def run_annual_gev(results):
     results_extended, ls_notes_analysis = gev.execute_and_store_stat_gev_per_year(
         results=results, store_results=True, return_periods=return_periods
     )
-    # Clean notes
+
     for key, outer_list in ls_notes_analysis.items():
         ls_notes_analysis[key] = [inner for inner in outer_list if inner]
     return results_extended, ls_notes_analysis
@@ -175,51 +177,80 @@ def run_annual_gev(results):
 
 def main(ls_files, args):
     logger, fh, log_path = initialize_logger()
+    
+    # potential jobs to execute 'pooled', 'annual-stationary', 'regression'
+    if args.jobs is not None:
+        ls_jobs = list([job.strip() for job in args.jobs.split(',')])
+    else:
+        ls_jobs = ls_default
+    
+    # ---------------------------------------------------------------------------------------
+    #results = {}
     dic_notes_analysis = {}
-
-    dic_data_per_model = import_all_models(ls_files)
-    print('\nImporting data done; next pooling and preparing data...')
     
-    dic_data_per_model, combined, notes_overview = prepare_combined_data(ls_files, dic_data_per_model)
-    dic_notes_analysis['data overview'] = notes_overview
-    print('\nPooling and preparing data done. Next checking locations with missing data...')
+    if 'pooled' in ls_jobs:
+        dic_notes_analysis = {}
+        dic_data_per_model = import_all_models(ls_files)
+        print('\nImporting data done; next pooling and preparing data...')
+        
+        dic_data_per_model, combined, notes_overview = prepare_combined_data(ls_files, dic_data_per_model)
+        dic_notes_analysis['data overview'] = notes_overview
+        print('\nPooling and preparing data done. Next checking locations with missing data...')
+        
+        missing_locations = dbf.create_summary_location_w_missing_data(
+            dic_data_per_model=dic_data_per_model,
+            combined=combined,
+            dir_export=os.path.join(path_export, 'exploration')
+        )
+        dic_notes_analysis['data pooling'] = [f"{len(missing_locations)} locations without any valid data found!"]
+
+        print('\nRearranging data to sort per location...')    
+        dic_data_per_location = extract_location_data(combined)
+        
+        if args.start_loc is not None or args.end_loc is not None:
+            start = args.start_loc if args.start_loc is not None else min(dic_data_per_location.keys())
+            end = args.end_loc if args.end_loc is not None else max(dic_data_per_location.keys())
+
+            dic_data_per_location = {
+                loc_id: df
+                for loc_id, df in dic_data_per_location.items()
+                if start <= loc_id <= end
+            }
+            print(f"Processing locations {start} to {end} ({len(dic_data_per_location)} total)")
+
+        print('\nPrecomputing location labels...')
+        location_labels = precompute_location_labels(dic_data_per_location)
+
+        print('\nRearranging done; next run GEV analysis with pooled data...')
+        results, ls_notes = run_gev_parallel(dic_data_per_location, location_labels)    
+        dic_notes_analysis['GEV pooled analysis'] = ls_notes
+
+    if 'annual-stationary' in ls_jobs:
+        try:
+            results.keys()
+            print('✓ continue with available dictionary')
+            
+        except NameError:
+            path_import = os.path.join(path_export, 'gev_analysis','pooled/')
+            print(f'import data from folder {path_import}...')
+            results = ut.import_results_from_files_mp(path_import)
     
-    missing_locations = dbf.create_summary_location_w_missing_data(
-        dic_data_per_model=dic_data_per_model,
-        combined=combined,
-        dir_export=os.path.join(path_export, 'exploration')
-    )
-    dic_notes_analysis['data pooling'] = [f"{len(missing_locations)} locations without any valid data found!"]
+        print('\nStationary and non-stationary GEV analysis done with pooled data; next, run annual stationary GEV...')
+        results_extended, ls_notes_analysis = run_annual_gev(results)
+        dic_notes_analysis['annual_statGEV'] = ls_notes_analysis
 
-    print('\nRearranging data to sort per location...')    
-    dic_data_per_location = extract_location_data(combined)
-    
-    if args.start_loc is not None or args.end_loc is not None:
-        start = args.start_loc if args.start_loc is not None else min(dic_data_per_location.keys())
-        end = args.end_loc if args.end_loc is not None else max(dic_data_per_location.keys())
+        print('\nAll analysis done; next store output...')
+        ut.store_analysis_notes(dic_notes_analysis, path_export + '/gev_analysis/pooled/')
 
-        dic_data_per_location = {
-            loc_id: df
-            for loc_id, df in dic_data_per_location.items()
-            if start <= loc_id <= end
-        }
+    if 'regression' in ls_jobs:
+        print('import data from file if not available')
+        results_extended_list = Parallel(n_jobs=-1, backend='threading')(
+            delayed(process_location)(site_id, dic_location, display_results, save_regression_summary)
+            for site_id, dic_location in results_extended.items()
+        )
+        results_extended = {site_id: dic_location for site_id, dic_location in results_extended_list}
 
-        print(f"Processing locations {start} to {end} ({len(dic_data_per_location)} total)")
-
-    print('\nPrecomputing location labels...')
-    location_labels = precompute_location_labels(dic_data_per_location)
-
-    print('\nRearranging done; next run GEV analysis with pooled data...')
-    results, ls_notes = run_gev_parallel(dic_data_per_location, location_labels)    
-    dic_notes_analysis['GEV pooled analysis'] = ls_notes
-
-    print('\nStationary and non-stationary GEV analysis done with pooled data; next, run annual stationary GEV...')
-    results_extended, ls_notes_analysis = run_annual_gev(results)
-    dic_notes_analysis['annual_statGEV'] = ls_notes_analysis
-
-    print('\nAll analysis done; next store output...')
-    ut.store_analysis_notes(dic_notes_analysis, path_export + '/gev_analysis/pooled/')
-
+    # ---------------------------------------------------------------------------------------
     print(f"\nAnalysis completed. Log saved at {log_path}")
 
     logger.removeHandler(fh)
@@ -247,6 +278,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--end_loc", type=int, default=None,
         help="End location ID (inclusive) to process"
+    )
+    
+    parser.add_argument(
+        "--jobs", type=str, default=None,
+        help="Started list of jobs to execute; available jobs are: pooled, annual-stationary, regression"
     )
     
     args = parser.parse_args()

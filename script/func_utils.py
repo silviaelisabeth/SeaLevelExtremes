@@ -11,6 +11,7 @@ import arabic_reshaper
 import func_gev as gev
 import func_plotting as dbplt
 from bidi.algorithm import get_display
+from joblib import Parallel, delayed
 from numpy import isnan, unique
 from pandas import DataFrame, read_parquet
 
@@ -252,15 +253,11 @@ def save_location_results(
 
 
 def get_all_location_folders(path_import: str) -> list[str]:
-    ls_location_folders = []
-
-    for parent in glob(os.path.join(path_import, "*")):
-        if os.path.isdir(parent):
-            for loc in glob(os.path.join(parent, "*")):
-                if os.path.isdir(loc):
-                    ls_location_folders.append(loc)
-
-    return ls_location_folders 
+    ls_location_folders = [
+        os.path.abspath(f) for f in glob(os.path.join(path_import, "**", "location_*"), recursive=True)
+        if os.path.isdir(f)
+    ]
+    return ls_location_folders
 
 
 def load_location_results(location_id: int, base_dir: str) -> dict:
@@ -287,6 +284,26 @@ def import_results_from_files(path_export: str) -> dict:
         result_loaded['file_path_report'] = location_files
         results[location_id] = result_loaded
     
+    return results
+
+
+def import_results_from_files_mp(path_export: str) -> dict:
+    results = {}
+
+    ls_location_folders = get_all_location_folders(path_import=path_export)
+
+    def load_location(location_files):
+        location_id = int(location_files.split('location_')[-1])
+        base_dir = '/'.join(location_files.split('/')[:-1])
+        result_loaded = load_location_results(location_id=location_id, base_dir=base_dir)
+        result_loaded['file_path_report'] = location_files
+        return location_id, result_loaded
+
+    parallel_results = Parallel(n_jobs=-1)(
+        delayed(load_location)(lf) for lf in ls_location_folders
+    )
+
+    results = {location_id: result for location_id, result in parallel_results}
     return results
 
 
@@ -332,6 +349,7 @@ def store_analysis_notes(dic_notes_analysis: dict, path_export: str) -> None:
             else:
                 f.write(f"{content}\n\n")
 
+    print(f"Full log written to {file_name}")
     print(f"Full log written to {file_name}")
     print(f"Full log written to {file_name}")
     print(f"Full log written to {file_name}")
