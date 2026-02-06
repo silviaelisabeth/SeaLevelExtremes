@@ -64,8 +64,9 @@ def create_map_location_missing_valid_data(
     )
 
     if store_map:
-        os.makedirs(dir_export, exist_ok=True)  
-        file_name = dir_export + f"/map_missingValidData_{round(radius_marker_m/1000,1)}kmRadius.html"
+        save_dir = Path(dir_export)
+        save_dir.mkdir(parents=True, exist_ok=True) 
+        file_name = save_dir / f"map_missingValidData_{round(radius_marker_m/1000,1)}kmRadius.html"
         deck.to_html(file_name, notebook_display=False, open_browser=False)
     if display_map:
         display(deck)
@@ -243,7 +244,8 @@ def plot_annual_max_with_trends(
             ax.axhline(y=y, linestyle=linestyle_trends[en], color=colors_trends, label=f'{period} (stationary)')
 
     # --- Plot non-stationary μ(t) if significant ---
-    if nonstat and comp and comp['p_value'] < 0.05:
+    pval = comp.get('p_value') if isinstance(comp, dict) else None
+    if nonstat and pval is not None and pval < 0.05:
         if 'CI' in nonstat:
             ax.fill_between(
                 annual_max['year'], nonstat['CI']['mu_lower'], nonstat['CI']['mu_upper'], 
@@ -254,8 +256,9 @@ def plot_annual_max_with_trends(
             )
 
     else:
+        pval_str = "None" if pval is None else f"{pval:.2f}"
         print(
-            f"\t WARNING! Skipping non-stationary with model comparison {comp['p_value']:.2f} "
+            f"\t WARNING! Skipping non-stationary with model comparison {pval_str} "
             f"(threshold for non-stationary 0.05)"
         )
         skip_non_stat = True
@@ -504,15 +507,17 @@ def plot_analysis(
     fig.canvas.draw()
     
     if save_path:
-        Path(save_path).mkdir(parents=True, exist_ok=True)
+        save_dir = Path(save_path)
+        save_dir.mkdir(parents=True, exist_ok=True) 
+        
         time_date = datetime.today().date().isoformat()
         country = location.split(',')[-1].strip()
         lat_str, lon_str = str(round(float(lat_lon_tuple[0]), 3)), str(round(float(lat_lon_tuple[1]),3))
     
-        file_name = f"/GEVanalysis_{model}_{country}_{lat_str}|{lon_str}_{time_date}.png"
-        print(f"\t saving GEV analysis to {save_path} as {file_name}")
+        file_name = save_dir / f"/GEVanalysis_{model}_{country}_{lat_str}|{lon_str}_{time_date}.png"
+        print(f"\t saving GEV analysis to {save_dir}")
 
-        plt.savefig(save_path+file_name, dpi=300, bbox_inches='tight')
+        plt.savefig(file_name, dpi=300, bbox_inches='tight')
     plt.show() if display_results else plt.close(fig)
     
 
@@ -599,7 +604,7 @@ def plot_pooled_analysis(
     fig.canvas.draw()  
     
     if save_path:
-        save_dir = Path(save_path) / f"location_{site_id}" 
+        save_dir = Path(save_path)
         save_dir.mkdir(parents=True, exist_ok=True)
 
         country = location_info['description'].split(',')[-1].strip()

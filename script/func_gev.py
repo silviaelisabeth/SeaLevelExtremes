@@ -821,10 +821,12 @@ def create_gev_report_per_location(
             print_msg=print_msg
             )
         
-        if export_report and path_export: 
+        if export_report and path_export:
             save_path = path_export + today_
-            Path(save_path).mkdir(parents=True, exist_ok=True)  
-            full_file_path = save_path + f"/GEVanalysis_{country}_{lat_str}|{lon_str}_{today_}.parquet"   
+            save_dir = Path(save_path)
+            save_dir.mkdir(parents=True, exist_ok=True) 
+
+            full_file_path = save_dir / f"GEVanalysis_{country}_{lat_str}|{lon_str}_{today_}.parquet"   
             
             df_messages = DataFrame({'messages': ls_messages}) 
             df_messages.to_parquet(full_file_path, index=False)
