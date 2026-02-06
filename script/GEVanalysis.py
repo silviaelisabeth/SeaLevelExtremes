@@ -232,7 +232,7 @@ def main(ls_files, args):
             
         except NameError:
             path_import = os.path.join(path_export, 'gev_analysis','pooled/')
-            print(f'import data from folder {path_import}...')
+            print(f'Import data from folder {path_import}...')
             results = ut.import_results_from_files_mp(path_import)
     
         print('\nRun annual stationary GEV analysis...')
