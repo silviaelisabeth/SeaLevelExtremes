@@ -185,9 +185,8 @@ def main(ls_files, args):
         ls_jobs = ls_default
     
     # ---------------------------------------------------------------------------------------
-    #results = {}
-    dic_notes_analysis = {}
-    
+
+    dic_notes_analysis = {}  
     if 'pooled' in ls_jobs:
         dic_notes_analysis = {}
         dic_data_per_model = import_all_models(ls_files)
@@ -232,7 +231,7 @@ def main(ls_files, args):
             
         except NameError:
             path_import = os.path.join(path_export, 'gev_analysis','pooled/')
-            print(f'Import data from folder {path_import}...')
+            print(f'\nImport data from folder {path_import}...')
             results = ut.import_results_from_files_mp(path_import)
     
         print('\nRun annual stationary GEV analysis...')
@@ -240,7 +239,7 @@ def main(ls_files, args):
         dic_notes_analysis['annual_statGEV'] = ls_notes_analysis
 
     if 'regression' in ls_jobs:
-        print('import data from file if not available')
+        print('\nImport data from file if not available')
         results_extended_list = Parallel(n_jobs=-1, backend='threading')(
             delayed(process_location)(site_id, dic_location, display_results, save_regression_summary)
             for site_id, dic_location in results_extended.items()

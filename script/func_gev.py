@@ -644,21 +644,7 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
     return results, dic_notes
 
 
-def execute_and_store_stat_gev_per_year_mp(results: dict, store_results: bool, return_periods: list) -> dict:
-    parallel_results = Parallel(n_jobs=-1, backend='threading')(
-        delayed(process_site_stat_gev)(site_id, site_data, return_periods, store_results)
-        for site_id, site_data in results.items()
-    )
-
-    dic_notes = {}
-    for site_id, site_result, ls_notes in parallel_results:
-        results[site_id]['fit results'] = site_result['fit results']
-        dic_notes[site_id] = ls_notes
-
-    return results, dic_notes
-
-
-def process_site_stat_gev(site_id, site_data, return_periods, store_results):
+def process_site_stat_gev(site_id, site_data, return_periods, store_results:bool = True):
     ls_notes = []
     grp_per_year = site_data['data'].groupby('year')
     
@@ -707,7 +693,7 @@ def process_site_stat_gev(site_id, site_data, return_periods, store_results):
         
         file_name = os.path.join(file_path, "statGEV_per_year.parquet")
         df_stat_gev_per_year.to_parquet(file_name)
-        print(f'output stored in {file_name}')
+        print(f'\t→ Output stored as {file_name}\n')
 
     site_result = {
         'fit results': {
@@ -718,6 +704,20 @@ def process_site_stat_gev(site_id, site_data, return_periods, store_results):
         }
     }
     return site_id, site_result, ls_notes
+
+
+def execute_and_store_stat_gev_per_year_mp(results: dict, store_results: bool, return_periods: list) -> dict:
+    parallel_results = Parallel(n_jobs=-1, backend='threading')(
+        delayed(process_site_stat_gev)(site_id, site_data, return_periods, store_results)
+        for site_id, site_data in results.items()
+    )
+
+    dic_notes = {}
+    for site_id, site_result, ls_notes in parallel_results:
+        results[site_id]['fit results'] = site_result['fit results']
+        dic_notes[site_id] = ls_notes
+
+    return results, dic_notes
 
 
 def weighted_least_square_regression_annual_location(global_statgev_scale, global_statgev_shape, df):
