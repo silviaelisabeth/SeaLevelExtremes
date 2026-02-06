@@ -193,6 +193,18 @@ def main(ls_files):
 
     print('\nRearranging data to sort per location...')    
     dic_data_per_location = extract_location_data(combined)
+    
+    if args.start_loc is not None or args.end_loc is not None:
+        start = args.start_loc if args.start_loc is not None else min(dic_data_per_location.keys())
+        end = args.end_loc if args.end_loc is not None else max(dic_data_per_location.keys())
+
+        dic_data_per_location = {
+            loc_id: df
+            for loc_id, df in dic_data_per_location.items()
+            if start <= loc_id <= end
+        }
+
+        print(f"Processing locations {start} to {end} ({len(dic_data_per_location)} total)")
 
     print('\nPrecomputing location labels...')
     location_labels = precompute_location_labels(dic_data_per_location)
@@ -225,6 +237,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--pattern", type=str, default="*.nc",
         help="Filename pattern to match NetCDF files (default: '*.nc')"
+    )
+    
+    parser.add_argument(
+        "--start_loc", type=int, default=None,
+        help="Start location ID (inclusive) to process"
+    )
+    
+    parser.add_argument(
+        "--end_loc", type=int, default=None,
+        help="End location ID (inclusive) to process"
     )
     
     args = parser.parse_args()

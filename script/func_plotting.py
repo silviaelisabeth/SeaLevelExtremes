@@ -368,43 +368,64 @@ def plot_level_evolution(
     x = arange(len(periods))
     
     def extract_level_and_ci(entry, period):
+        if entry is None or 'values' not in entry:
+            return nan, 0, 0
         lvl = entry['values'].get(period, None)
         if lvl is None:
             return nan, 0, 0
-        if isinstance(lvl, dict):  # has CI
-            return lvl['return_level'], lvl['return_level'] - lvl['CI_lower'], lvl['CI_upper'] - lvl['return_level']
+        if isinstance(lvl, dict): 
+            return (lvl.get('return_level', nan), 
+                    lvl.get('return_level', nan) - lvl.get('CI_lower', 0), 
+                    lvl.get('CI_upper', 0) - lvl.get('return_level', nan)
+            )
         else:
             return lvl, 0, 0
 
-    levels_start, err_lower_start, err_upper_start = zip(*[
-        extract_level_and_ci(return_levels['nonstationary_start'], p) for p in periods
-    ])
+    # ----------------- START -----------------
+    start_entries = return_levels.get('nonstationary_start')
+    if start_entries is None:
+        print("\t WARNING: No non-stationary start return levels")
+        levels_start = [nan]*len(periods)
+        err_lower_start = [0]*len(periods)
+        err_upper_start = [0]*len(periods)
+        year_start = "N/A"
+    else:
+        year_start = start_entries[0].get('year', "N/A") if isinstance(start_entries, list) else "N/A"
+        levels_start, err_lower_start, err_upper_start = zip(*[
+            extract_level_and_ci(entry, p) for entry, p in zip(start_entries, periods)
+        ])
+
     levels_start = array(levels_start)
     yerr_start = array([err_lower_start, err_upper_start])
     
     ax.bar(
         x - width/2, levels_start, width, yerr=yerr_start, capsize=4, alpha=0.7,
-        color=color_levels[0], label=f"Start {return_levels['nonstationary_start']['year']}", 
+        color=color_levels[0], label=f"Start {year_start}"
     )
     
+    # ----------------- END -----------------
     if not skip_non_stat:
-        levels_end, err_lower_end, err_upper_end = zip(*[
-            extract_level_and_ci(return_levels['nonstationary_end'], p) for p in periods
-        ])
+        end_entries = return_levels.get('nonstationary_end')
+        if end_entries is None:
+            print("\t WARNING: No non-stationary end return levels")
+            levels_end = [nan]*len(periods)
+            err_lower_end = [0]*len(periods)
+            err_upper_end = [0]*len(periods)
+            year_end = "N/A"
+        else:
+            year_end = end_entries[0].get('year', "N/A") if isinstance(end_entries, list) else "N/A"
+            levels_end, err_lower_end, err_upper_end = zip(*[
+                extract_level_and_ci(entry, p) for entry, p in zip(end_entries, periods)
+            ])
         levels_end = array(levels_end)
         yerr_end = array([err_lower_end, err_upper_end])
         
         ax.bar(
             x + width/2, levels_end, width, color=color_levels[1], yerr=yerr_end, capsize=4, alpha=0.7,
-            label=f"End {return_levels['nonstationary_end']['year']}", 
+            label=f"End {year_end}", 
         )
     
-    # X-axis
-    if not skip_non_stat:
-        ax.set_title("Return Levels Non-Stationary Evolution incl Uncertainty", fontsize=fontsize)
-    else:
-        ax.set_title("Return Levels Stationary incl. Uncertainty", fontsize=fontsize)
-        
+    # ----------------- FINAL AXES -----------------
     ax.set_xticks(x)
     ax.set_xticklabels(periods, fontsize=fontsize)
     ax.set_ylabel("Return Level (m)", fontsize=fontsize)
@@ -415,7 +436,10 @@ def plot_level_evolution(
     
     ax.axhline(y=ax.get_ylim()[0], color=axes_color, linewidth=1.2, zorder=10)
     ax.axvline(x=ax.get_xlim()[0], color=axes_color, linewidth=1.2, zorder=10)
-
+    ax.set_title(
+        "Return Levels Non-Stationary Evolution incl Uncertainty" if not skip_non_stat else
+        "Return Levels Stationary incl. Uncertainty", fontsize=fontsize
+    )
 
 def plot_analysis(
     results: dict,
