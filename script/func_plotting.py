@@ -373,26 +373,25 @@ def plot_level_evolution(
         lvl = entry['values'].get(period, None)
         if lvl is None:
             return nan, 0, 0
-        if isinstance(lvl, dict): 
+        if isinstance(lvl, dict):
             return (lvl.get('return_level', nan), 
                     lvl.get('return_level', nan) - lvl.get('CI_lower', 0), 
-                    lvl.get('CI_upper', 0) - lvl.get('return_level', nan)
-            )
+                    lvl.get('CI_upper', 0) - lvl.get('return_level', nan))
         else:
             return lvl, 0, 0
 
     # ----------------- START -----------------
-    start_entries = return_levels.get('nonstationary_start')
-    if start_entries is None:
+    start_entry = return_levels.get('nonstationary_start')
+    if start_entry is None:
         print("\t WARNING: No non-stationary start return levels")
         levels_start = [nan]*len(periods)
         err_lower_start = [0]*len(periods)
         err_upper_start = [0]*len(periods)
         year_start = "N/A"
     else:
-        year_start = start_entries[0].get('year', "N/A") if isinstance(start_entries, list) else "N/A"
+        year_start = start_entry.get('year', "N/A")
         levels_start, err_lower_start, err_upper_start = zip(*[
-            extract_level_and_ci(entry, p) for entry, p in zip(start_entries, periods)
+            extract_level_and_ci(start_entry, p) for p in periods
         ])
 
     levels_start = array(levels_start)
@@ -405,18 +404,19 @@ def plot_level_evolution(
     
     # ----------------- END -----------------
     if not skip_non_stat:
-        end_entries = return_levels.get('nonstationary_end')
-        if end_entries is None:
+        end_entry = return_levels.get('nonstationary_end')
+        if end_entry is None:
             print("\t WARNING: No non-stationary end return levels")
             levels_end = [nan]*len(periods)
             err_lower_end = [0]*len(periods)
             err_upper_end = [0]*len(periods)
             year_end = "N/A"
         else:
-            year_end = end_entries[0].get('year', "N/A") if isinstance(end_entries, list) else "N/A"
+            year_end = end_entry.get('year', "N/A")
             levels_end, err_lower_end, err_upper_end = zip(*[
-                extract_level_and_ci(entry, p) for entry, p in zip(end_entries, periods)
+                extract_level_and_ci(end_entry, p) for p in periods
             ])
+        
         levels_end = array(levels_end)
         yerr_end = array([err_lower_end, err_upper_end])
         
