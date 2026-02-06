@@ -1,4 +1,5 @@
 import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -8,6 +9,7 @@ import func_preparation as dbf
 import func_utils as ut
 import statsmodels.api as sm
 from IPython.display import Markdown, display
+from joblib import Parallel, delayed
 from numpy import (any, array, exp, finfo, float64, full_like, generic, inf,
                    isfinite, isnan, linalg, linspace, log, nan, ndarray,
                    ones_like, sqrt, sum, vstack, zeros)
@@ -634,11 +636,88 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
                 file_path = results[site_id]['file_path_report']
             else:
                 file_path = results[site_id]['file location']
-                
-            df_stat_gev_per_year.to_parquet(os.path.join(file_path, f"statGEV_per_year.parquet"))
-        
+            file_name = os.path.join(file_path, f"statGEV_per_year.parquet")
+            df_stat_gev_per_year.to_parquet(file_name)
+            print(f'output stored in {file_name}')
+            
         dic_notes[site_id] = ls_notes       
     return results, dic_notes
+
+
+def execute_and_store_stat_gev_per_year_mp(results: dict, store_results: bool, return_periods: list) -> dict:
+    parallel_results = Parallel(n_jobs=-1, backend='threading')(
+        delayed(process_site_stat_gev)(site_id, site_data, return_periods, store_results)
+        for site_id, site_data in results.items()
+    )
+
+    dic_notes = {}
+    for site_id, site_result, ls_notes in parallel_results:
+        results[site_id]['fit results'] = site_result['fit results']
+        dic_notes[site_id] = ls_notes
+
+    return results, dic_notes
+
+
+def process_site_stat_gev(site_id, site_data, return_periods, store_results):
+    ls_notes = []
+    grp_per_year = site_data['data'].groupby('year')
+    
+    message = f"Conducting stationary GEV for siteID {site_id} grouped per year..."
+    print(message)
+    ls_notes.append(message)
+
+    results_stat_per_year_at_location = dict()
+    results_return_values_per_year = dict()
+
+    for en, (year, group) in enumerate(grp_per_year, start=1):
+        print(f"\t...{int(year)} (#{en} out of {len(grp_per_year)} years)", end="\r")
+        data = (group
+                .sort_values('year')
+                .reset_index(drop=True)
+                .rename(columns={'storm_surge': 'annual_max'})
+                .dropna())
+        annual_max_for_year = data['annual_max'].values
+        
+        gev_stationary, message = fit_stationary_gev(annual_max_for_year, int(year))
+        ls_notes.append(message)
+        if gev_stationary:
+            cov_stationary = compute_cov_matrix(gev_stationary, annual_max_for_year)
+            rl_stationary = calculate_return_levels(
+                gev_params=gev_stationary, return_periods=return_periods, cov_matrix=cov_stationary
+            )
+        else:
+            message = f'\tskipping Return Level Calculation, no stationary GEV for {year}...'
+            ls_notes.append(message)
+            print(message)
+            rl_stationary = None
+
+        results_stat_per_year_at_location[int(year)] = gev_stationary
+        results_return_values_per_year[int(year)] = rl_stationary
+
+    df_stat_gev_per_year = DataFrame.from_dict(results_stat_per_year_at_location).T
+    df_stat_return_levels_per_year = convert_annual_return_levels_with_ci_into_dataframe(results_return_values_per_year)
+
+    if store_results:
+        file_path = site_data.get('file_path_report') or site_data.get('file location')
+        if not file_path:  # fallback
+            fallback_dir = Path(tempfile.gettempdir()) / f"site_{site_id}_output"
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            file_path = str(fallback_dir)
+            print(f"[WARNING] No file path found for site {site_id}, using fallback: {file_path}")
+        
+        file_name = os.path.join(file_path, "statGEV_per_year.parquet")
+        df_stat_gev_per_year.to_parquet(file_name)
+        print(f'output stored in {file_name}')
+
+    site_result = {
+        'fit results': {
+            'gev_stationary': {
+                'analysis_per_year': df_stat_gev_per_year.dropna(),
+                'return_levels_per_year': df_stat_return_levels_per_year.dropna()
+            }
+        }
+    }
+    return site_id, site_result, ls_notes
 
 
 def weighted_least_square_regression_annual_location(global_statgev_scale, global_statgev_shape, df):
@@ -921,4 +1000,5 @@ def store_report_stationary_gev_per_year(site_data:dict):
 
     meta_path = Path(site_data['file_path_report']).with_name(Path(site_data['file_path_report']).stem + "_metadata.parquet")
     DataFrame({'metadata': [metadata]}).to_parquet(meta_path, index=False)
+    site_data['file_path_metadata'] = str(meta_path)
     site_data['file_path_metadata'] = str(meta_path)

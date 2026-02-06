@@ -166,7 +166,7 @@ def run_gev_parallel(dic_data_per_location, location_labels, n_jobs=None):
 
 
 def run_annual_gev(results):
-    results_extended, ls_notes_analysis = gev.execute_and_store_stat_gev_per_year(
+    results_extended, ls_notes_analysis = gev.execute_and_store_stat_gev_per_year_mp(
         results=results, store_results=True, return_periods=return_periods
     )
 
@@ -235,11 +235,11 @@ def main(ls_files, args):
             print(f'import data from folder {path_import}...')
             results = ut.import_results_from_files_mp(path_import)
     
-        print('\nStationary and non-stationary GEV analysis done with pooled data; next, run annual stationary GEV...')
+        print('\nRun annual stationary GEV analysis...')
         results_extended, ls_notes_analysis = run_annual_gev(results)
         dic_notes_analysis['annual_statGEV'] = ls_notes_analysis
 
-        print('\nAll analysis done; next store output...')
+        print('\nAll analyses done; next store output...')
         ut.store_analysis_notes(dic_notes_analysis, path_export + '/gev_analysis/pooled/')
 
     if 'regression' in ls_jobs:
