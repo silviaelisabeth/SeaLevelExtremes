@@ -374,8 +374,8 @@ def calculate_return_levels(
 
             # Delta-method variance
             var_z = grad.T @ cov_matrix @ grad
-            ci_lower = z_T - 1.96 * sqrt(var_z)
-            ci_upper = z_T + 1.96 * sqrt(var_z)
+            ci_lower = z_T - 1.96 * sqrt(var_z) if var_z >= 0 else z_T
+            ci_upper = z_T + 1.96 * sqrt(var_z) if var_z >= 0 else z_T
             results[f'{T}-year'] = {'return_level': z_T, 'CI_lower': ci_lower, 'CI_upper': ci_upper}
         else:
             results[f'{T}-year'] = {'return_level': z_T}
