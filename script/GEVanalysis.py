@@ -239,9 +239,6 @@ def main(ls_files, args):
         results_extended, ls_notes_analysis = run_annual_gev(results)
         dic_notes_analysis['annual_statGEV'] = ls_notes_analysis
 
-    print('\nAll analyses done; next store output...')
-    ut.store_analysis_notes(dic_notes_analysis, path_export + '/gev_analysis/pooled/')
-
     if 'regression' in ls_jobs:
         print('import data from file if not available')
         results_extended_list = Parallel(n_jobs=-1, backend='threading')(
@@ -249,6 +246,9 @@ def main(ls_files, args):
             for site_id, dic_location in results_extended.items()
         )
         results_extended = {site_id: dic_location for site_id, dic_location in results_extended_list}
+
+    print('\nAll analyses done; next store output...')
+    ut.store_analysis_notes(dic_notes_analysis, path_export + '/gev_analysis/pooled/')
 
     # ---------------------------------------------------------------------------------------
     print(f"\nAnalysis completed. Log saved at {log_path}")
