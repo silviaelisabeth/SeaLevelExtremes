@@ -16,6 +16,8 @@ from joblib import Parallel, delayed
 from numpy import isnan, unique
 from pandas import DataFrame, concat, read_parquet
 
+logger = logging.getLogger("gev_analysis")
+
 
 def initialize_logger_v1(log_filename:str, log_dir:str="../logs"):
     os.makedirs(log_dir, exist_ok=True)
@@ -93,7 +95,7 @@ def normalize_location_text(text: str) -> str:
 def adding_plot_and_text(message:str, ls_messages:list[str], print_msg:bool):
     ls_messages.append(message)
     if print_msg:
-        print(message)
+        logger.info(message)
     return ls_messages
 
 
@@ -105,11 +107,13 @@ def prepare_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> Data
             (data['target_year'] <= hindcast_end)
     data_hindcast = data[mask].copy()
 
-    print(f"\nData Summary:")
-    print(f"  Hindcast period: {hindcast_start}-{hindcast_end}")
-    print(f"  Total observations: {len(data_hindcast):,}")
-    print(f"  Models: {data_hindcast['model'].nunique()}")
-    print(f"  Locations: {min(data_hindcast[['lon', 'lat']].nunique().values)}")
+    logger.info(
+        f"\nData Summary:"
+        f"\n\tHindcast period: {hindcast_start}-{hindcast_end}"
+        f"\n\tTotal observations: {len(data_hindcast):,}"
+        f"\n\tModels: {data_hindcast['model'].nunique()}"
+        f"\n\tLocations: {min(data_hindcast[['lon', 'lat']].nunique().values)}"
+        )
     
     return data_hindcast
 
@@ -150,7 +154,7 @@ def prepare_pooled_data(dic_data: dict, hindcast_start:int, hindcast_end: int) -
                 \t  Available Models per Location: {min(ls_nmodels)}-{max(ls_nmodels)}
                 \t  Locations to analyse: {len(dic_data_hindcast.keys())}
                 """.strip()
-        print(message)
+        logger.info(message)
         
         return dic_data_hindcast, message
 
@@ -186,7 +190,7 @@ def get_dataset_overview_for_model_at_location(
             f"\n\tor provide model_nr, lon, lat: {model_nr}, {lon}, {lat}"
             )
     
-    print(
+    logger.info(
         f"Model {model_label} ({model_nr}) - location-ID {site_id} "
         f"\nFull dataframe {data_for_model_at_location.shape} vs reduced {data_for_model_at_location.dropna().shape}"
         f"\ncoordinates in original dataset lon|lat: {lon:.5f}|{lat:.5f}")
@@ -207,7 +211,7 @@ def create_data_overview(dic_data_per_model:dict,ls_files:list[str]) -> list:
         ls_num_samples.append(data_shape[0])
         message = f"{model_label} · {data_shape}"
         ls_notes.append(message)
-        print(message)
+        logger.info(message)
         
     sites_valid = [dic_data_per_model[model_label]['preparation info'][0] for model_label in dic_data_per_model.keys()]
     unique_years_per_model = [len(dic_sim_years_per_model[model_label]) for model_label in dic_sim_years_per_model.keys()]
@@ -223,7 +227,7 @@ def create_data_overview(dic_data_per_model:dict,ls_files:list[str]) -> list:
         \t - between {min(sim_year_per_model_min)}-{max(sim_year_per_model_max)}
         """.strip()
     ls_notes.append(message)
-    print(message)
+    logger.info(message)
     return ls_notes
 
 
@@ -249,7 +253,7 @@ def save_location_results(
         location_id=location_id, result_location=result_location, base_dir=base_dir
         )
     
-    print('export path:', loc_dir)
+    logger.info('export path:', loc_dir)
     _ = dbplt.plot_pooled_analysis(
         result=result_location, 
         site_id=location_id, 
@@ -339,7 +343,6 @@ def load_pooled_results(base_dir: Union[str, Path]) -> dict[int, dict[str, any]]
             for loc_id, df_loc in df.groupby("location_id"):
                 results.setdefault(int(loc_id), {})[key] = df_loc.drop(columns="location_id")
         else:
-            # If DataFrame has no location_id, store as single object
             results.setdefault(0, {})[key] = df
 
     # --- Load Pickle artifacts ---
@@ -395,10 +398,7 @@ def store_analysis_notes(dic_notes_analysis: dict, path_export: str) -> None:
             else:
                 f.write(f"{content}\n\n")
 
-    print(f"Full log written to {file_name}")
-    print(f"Full log written to {file_name}")
-    print(f"Full log written to {file_name}")
-    print(f"Full log written to {file_name}")
+    logger.info(f"Full log written to {file_name}")
 
 
 def save_pooled_results(results: dict[int, dict], data, base_dir: str) -> None:

@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 from datetime import datetime
@@ -16,6 +17,8 @@ from pandas import DataFrame, to_numeric
 from scipy import optimize, stats
 from scipy.optimize import approx_fprime, minimize
 from scipy.stats import norm
+
+logger = logging.getLogger("gev_analysis")
 
 
 def extract_annual_maxima_unique(
@@ -103,7 +106,7 @@ def fit_stationary_gev(
         else:
             message = f"Warning: Only {len(data)} observations. Need at least 10 for reliable GEV fit."
         if print_msg:
-            print(message)
+            logger.info(message)
         ls_notes.append(message)
         return None, ls_notes
     
@@ -139,7 +142,7 @@ def fit_stationary_gev(
             'tail_behavior': tail
         }, ls_notes
     except Exception as e:
-        print(f"Failed to conduct GEV fitting due to error: {e}")
+        logger.debug(f"Failed to conduct GEV fitting due to error: {e}")
         return None, ls_notes
 
 
@@ -169,7 +172,7 @@ def fit_nonstationary_gev(
     if len(data) < 20:
         message = f"Warning: Non-stationary GEV needs ≥20 obs. Have {len(data)}."
         if print_msg:
-            print(message)
+            logger.info(message)
         ls_notes.append(message)
         return None, ls_notes
     
@@ -265,7 +268,7 @@ def fit_nonstationary_gev(
         return params_out, ls_notes
         
     except Exception as e:
-        print(f"Non-stationary GEV fitting error: {e}")
+        logger.info(f"Non-stationary GEV fitting error: {e}")
         return None, ls_notes
 
 
@@ -492,7 +495,7 @@ def compute_cov_matrix(gev_params: dict, data: ndarray, years: ndarray = None) -
     try:
         cov_matrix = linalg.inv(H)
     except linalg.LinAlgError:
-        print("Warning: Hessian not invertible; returning None")
+        logger.info("Warning: Hessian not invertible; returning None")
         return None
     
     return cov_matrix
@@ -540,7 +543,7 @@ def compute_mle_ci(params, years, data, trend_params='location', alpha=0.05):
     try:
         cov = linalg.inv(hessian)  # covariance of MLE
     except linalg.LinAlgError:
-        print("Hessian is singular; cannot compute CI")
+        logger.info("Hessian is singular; cannot compute CI")
         return None, None
 
     # Delta method: Var(mu_t) = grad(mu_t)^T * cov * grad(mu_t)
@@ -591,7 +594,7 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
         grp_per_year = results[site_id]['data'].groupby('year')
         
         message = f"Conducting stationary GEV for siteID {site_id} (#{en+1} out of {len(results.keys())}) grouped per year..."
-        print(message)
+        logger.info(message)
         ls_notes.append(message)
 
         results_stat_per_year_at_location = dict()
@@ -599,7 +602,7 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
         en = 0
         for year, group in grp_per_year:
             en+=1
-            print(f"\t...{int(year)} (#{en} out of {len(grp_per_year)} years)", end="\r") 
+            logger.info(f"\t...{int(year)} (#{en} out of {len(grp_per_year)} years)", end="\r") 
 
             data = (group
                     .sort_values('year')
@@ -618,12 +621,12 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
             else:
                 message = f'\tSkipping Return Level Calculation, no stationary GEV for {year}...'
                 ls_notes.append(message)
-                print(message)
+                logger.info(message)
                 rl_stationary = None
 
             results_stat_per_year_at_location[int(year)] = gev_stationary
             results_return_values_per_year[int(year)] = rl_stationary
-        print("\nDone!\n") 
+        logger.info("\nDone!\n") 
 
         df_stat_gev_per_year = DataFrame.from_dict(results_stat_per_year_at_location).T
         results[site_id]['fit results']['gev_stationary']['analysis_per_year'] = df_stat_gev_per_year.dropna()
@@ -638,7 +641,7 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
                 file_path = results[site_id]['file location']
             file_name = os.path.join(file_path, f"statGEV_per_year.parquet")
             df_stat_gev_per_year.to_parquet(file_name)
-            print(f'Output stored in {file_name}')
+            logger.info(f'Output stored in {file_name}')
             
         dic_notes[site_id] = ls_notes       
     return results, dic_notes
@@ -649,14 +652,14 @@ def process_site_stat_gev(site_id, site_data, return_periods, store_results:bool
     grp_per_year = site_data['data'].groupby('year')
     
     message = f"Conducting stationary GEV for siteID {site_id} grouped per year..."
-    print(message)
+    logger.info(message)
     ls_notes.append(message)
 
     results_stat_per_year_at_location = dict()
     results_return_values_per_year = dict()
 
     for en, (year, group) in enumerate(grp_per_year, start=1):
-        print(f"\t...{int(year)} (#{en} out of {len(grp_per_year)} years)", end="\r")
+        logger.info(f"\t...{int(year)} (#{en} out of {len(grp_per_year)} years)", end="\r")
         data = (group
                 .sort_values('year')
                 .reset_index(drop=True)
@@ -674,7 +677,7 @@ def process_site_stat_gev(site_id, site_data, return_periods, store_results:bool
         else:
             message = f'\tskipping Return Level Calculation, no stationary GEV for {year}...'
             ls_notes.append(message)
-            print(message)
+            logger.info(message)
             rl_stationary = None
 
         results_stat_per_year_at_location[int(year)] = gev_stationary
@@ -689,11 +692,11 @@ def process_site_stat_gev(site_id, site_data, return_periods, store_results:bool
             fallback_dir = Path(tempfile.gettempdir()) / f"site_{site_id}_output"
             fallback_dir.mkdir(parents=True, exist_ok=True)
             file_path = str(fallback_dir)
-            print(f"[WARNING] No file path found for site {site_id}, using fallback: {file_path}")
+            logger.info(f"[WARNING] No file path found for site {site_id}, using fallback: {file_path}")
         
         file_name = os.path.join(file_path, "statGEV_per_year.parquet")
         df_stat_gev_per_year.to_parquet(file_name)
-        print(f'\t→ Output stored as {file_name}\n')
+        logger.info(f'\t→ Output stored as {file_name}\n')
 
     site_result = {
         'fit results': {
@@ -758,23 +761,25 @@ def analyze_per_location(
     years = annual_max['year'].values
     data = annual_max['annual_max'].values
 
-    print("\tConducting stationary GEV...")
+    logger.info("\tConducting stationary GEV...")
     gev_stationary, warnings = fit_stationary_gev(data)
     ls_notes.append(warnings)
-    print(f"\t → Stationary GEV done (success {gev_stationary != None})")
-    print("\tContinuing with non-stationary GEV...")
+    logger.info(f"\t → Stationary GEV done (success {gev_stationary != None})")
+    
+    logger.info("\tContinuing with non-stationary GEV...")
     gev_nonstat_loc, warnings = fit_nonstationary_gev(years, data, 'location')
     ls_notes.append(warnings)
-    print(f"\t → Non-stationary GEV done (success {gev_nonstat_loc != None})")
+    logger.info(f"\t → Non-stationary GEV done (success {gev_nonstat_loc != None})")
+    
     comparison = compare_models(gev_stationary, gev_nonstat_loc)
-
-    print('Return Levels Stationary GEV...')
+    
+    logger.info('Return Levels Stationary GEV...')
     cov_stationary = compute_cov_matrix(gev_stationary, data)
     rl_stationary = calculate_return_levels(
         gev_params=gev_stationary, return_periods=return_periods, cov_matrix=cov_stationary
         )
 
-    print('Return Levels NON-Stationary GEV...')
+    logger.info('Return Levels NON-Stationary GEV...')
     if gev_nonstat_loc:
         cov_nonstat = compute_cov_matrix(gev_nonstat_loc, data, years=years)
         rl_nonstat_start = calculate_return_levels(
@@ -1000,5 +1005,6 @@ def store_report_stationary_gev_per_year(site_data:dict) -> None:
 
     meta_path = Path(site_data['file_path_report']).with_name(Path(site_data['file_path_report']).stem + "_metadata.parquet")
     DataFrame({'metadata': [metadata]}).to_parquet(meta_path, index=False)
+    site_data['file_path_metadata'] = str(meta_path)
     site_data['file_path_metadata'] = str(meta_path)
     site_data['file_path_metadata'] = str(meta_path)

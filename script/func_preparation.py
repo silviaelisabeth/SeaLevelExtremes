@@ -1,3 +1,4 @@
+import logging
 import os
 import random
 from pathlib import Path
@@ -12,6 +13,8 @@ from numpy import allclose, ndarray
 from pandas import DataFrame, MultiIndex, concat
 from xarray import DataArray, Dataset
 
+logger = logging.getLogger("gev_analysis")
+
 #!!!ToDo: adding typing, remove unused functions...
 
 
@@ -19,7 +22,8 @@ def import_all_models(ls_files:list) -> dict[str,dict]:
     dic_data_per_model = dict()
     for en, file in enumerate(ls_files):
         model_name = os.path.basename(file).split('.nc')[0].split('_')[-1]
-        print(f'Importing data from model {model_name} ({en+1}/{len(ls_files)})...')
+        logger.info(f'Importing data from model {model_name} ({en+1}/{len(ls_files)})...')
+        
         model_name, ds_model = import_data_from_file(file)
         dic_data_per_model[model_name] = {'raw data': ds_model}
     return dic_data_per_model
@@ -49,7 +53,7 @@ def verify_bias_correction(
     expected = ds_model.annualMax[sample, :, ds_model.annualMax.bc_flag[site].astype(int)-1, site].values 
     actual = annualMax_pref[sample, :, site].values
 
-    print(
+    logger.info(
         f" - Validating bias correction:\n"
         f"\tAsserting whether actual ({actual}) selection matches expected selection ({expected})... "
     )
@@ -73,7 +77,6 @@ def prepare_combined_data(ls_files:list[str], dic_data_per_model:dict)->tuple[di
     dic_data_per_model = data_preparation(ls_files=ls_files, dic_data_per_model=dic_data_per_model)
     notes_overview = ut.create_data_overview(dic_data_per_model, ls_files)
     
-    # Combine per-model data into one xarray
     da_list = []
     for model_name, dic_model in dic_data_per_model.items():
         da = dic_model['valid data']
@@ -141,11 +144,13 @@ def prepare_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> Data
                 (data['target_year'] <= hindcast_end)
         data_hindcast = data[mask].copy()
 
-        print(f"\nData Summary:")
-        print(f"  Hindcast period: {hindcast_start}-{hindcast_end}")
-        print(f"  Total observations: {len(data_hindcast):,}")
-        print(f"  Models: {data_hindcast['model'].nunique()}")
-        print(f"  Locations: {min(data_hindcast[['lon', 'lat']].nunique().values)}")
+        logger.info(
+            f"\nData Summary:"
+            f"\n\tHindcast period: {hindcast_start}-{hindcast_end}"
+            f"\n\tTotal observations: {len(data_hindcast)}"
+            f"\n\tModels: {data_hindcast['model'].nunique()}"
+            f"\n\tLocations: {min(data_hindcast[['lon', 'lat']].nunique().values)}"
+            )
         
         return data_hindcast
     
@@ -280,7 +285,7 @@ def create_summary_location_w_missing_data(dic_data_per_model:dict, combined, di
     model_label = list(dic_data_per_model.keys())[0]
 
     missing_locations, df_valid = get_location_w_missing_data(model_label, dic_data_per_model, combined)
-    print(f'{len(missing_locations)} locations without any valid data found!')
+    logger.info(f'{len(missing_locations)} locations without any valid data found!')
     
     df_missing_location = add_location_labels(missing_locations)
     df_missing_location = df_missing_location.sort_values('country')[['country', 'city', 'admin1', 'lat', 'lon']]
@@ -291,7 +296,7 @@ def create_summary_location_w_missing_data(dic_data_per_model:dict, combined, di
     
         file_name = save_dir / 'missing_locations_summary.txt'
         df_missing_location.to_csv(file_name, sep='\t', index=False)
-        print(f"Overview of location with missing data saved as {file_name}.")
+        logger.info(f"Overview of location with missing data saved as {file_name}.")
         
         dbplt.create_map_location_missing_valid_data(
             missing_locations=missing_locations, df_valid=df_valid, 

@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,8 @@ from statsmodels.regression.linear_model import RegressionResultsWrapper
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+logger = logging.getLogger("gev_analysis")
 
 rcParams['font.family'] = [
     'Noto Sans',
@@ -71,7 +74,7 @@ def create_map_location_missing_valid_data(
     if display_map:
         display(deck)
 
-    print(f"Map saved as {file_name}. You can open it in your browser and interact with it.")
+    logger.info(f"Map saved as {file_name}. You can open it in your browser and interact with it.")
 
 
 def plot_gev_mu_trend(
@@ -230,7 +233,7 @@ def plot_annual_max_with_trends(
     if return_levels.get('stationary'):
         for en, period in enumerate(ls_periods):
             if period not in return_levels['stationary']:
-                print(f" - Warning: period {period} not found in return levels stationary, skipping...")
+                logger.info(f" - Warning: period {period} not found in return levels stationary, skipping...")
                 continue
 
             lvl = return_levels['stationary'][period]
@@ -258,7 +261,7 @@ def plot_annual_max_with_trends(
 
     else:
         pval_str = "None" if pval is None else f"{pval:.2f}"
-        print(
+        logger.info(
             f"\t WARNING! Skipping non-stationary with model comparison {pval_str} for location {loc_id} "
             f"(threshold for non-stationary 0.05)"
         )
@@ -387,7 +390,7 @@ def plot_level_evolution(
     # ----------------- START -----------------
     start_entry = return_levels.get('nonstationary_start')
     if start_entry is None:
-        print("\t WARNING: No non-stationary start return levels")
+        logger.info("\t WARNING: No non-stationary start return levels")
         levels_start = [nan]*len(periods)
         err_lower_start = [0]*len(periods)
         err_upper_start = [0]*len(periods)
@@ -410,7 +413,7 @@ def plot_level_evolution(
     if not skip_non_stat:
         end_entry = return_levels.get('nonstationary_end')
         if end_entry is None:
-            print("\t WARNING: No non-stationary end return levels")
+            logger.info("\t WARNING: No non-stationary end return levels")
             levels_end = [nan]*len(periods)
             err_lower_end = [0]*len(periods)
             err_upper_end = [0]*len(periods)
@@ -473,7 +476,7 @@ def plot_analysis(
     """Create comprehensive visualization."""
 
     if model not in results or lat_lon_tuple not in results[model].keys():
-        print(f"No results for {model}, {lat_lon_tuple}")
+        logger.info(f"No results for {model}, {lat_lon_tuple}")
         return
     
     result = results[model][lat_lon_tuple]
@@ -544,7 +547,7 @@ def plot_analysis(
         lat_str, lon_str = str(round(float(lat_lon_tuple[0]), 3)), str(round(float(lat_lon_tuple[1]),3))
     
         file_name = save_dir / f"/GEVanalysis_{model}_{country}_{lat_str}|{lon_str}_{time_date}.png"
-        print(f"\t saving GEV analysis to {save_dir}")
+        logger.info(f"\t saving GEV analysis to {save_dir}")
 
         plt.savefig(file_name, dpi=300, bbox_inches='tight')
     plt.show() if display_results else plt.close(fig)
@@ -644,10 +647,9 @@ def plot_pooled_analysis(
         file_name = f"GEVanalysis_pooled_{site_id}_{country_clean}_{lat_clean}_{lon_clean}.png"
         file_path = save_dir / file_name 
 
-        print(f"\t saving GEV analysis to {save_dir} as {file_name}")
+        logger.info(f"\t saving GEV analysis to {save_dir} as {file_name}")
         plt.savefig(file_path, dpi=300, bbox_inches='tight') 
             
     plt.show() if display_results else plt.close(fig)
     
-    return fig
     return fig
