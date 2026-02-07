@@ -32,6 +32,7 @@ _LOCATION_LABELS = None
 
 ls_default = ['pooled', 'annual-stationary', 'regression', 'map']
 
+#!!!ToDo regression analysis 
 
 # --------------------------------------------------------------------------
 # UTILITY FUNCTIONS
