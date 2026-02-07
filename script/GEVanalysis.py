@@ -11,6 +11,7 @@ import func_preparation as dbf
 import func_utils as ut
 import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
+from tqdm import tqdm
 
 # --------------------------------------------------------------------------
 # CONFIGURATION
@@ -40,16 +41,7 @@ def set_location_labels(labels):
     _LOCATION_LABELS = labels
 
 
-def select_allowed_locations(dic_data_per_location, start_loc, end_loc):
-    dic_data_per_location = {
-        loc_id: df
-        for loc_id, df in dic_data_per_location.items()
-        if start_loc <= loc_id <= end_loc
-    }
-    return dic_data_per_location
-
-
-def process_location(location_item):
+def process_location(location_item)->dict:
     loc_id, df_prepared = location_item
     messages = []
 
@@ -68,17 +60,6 @@ def process_location(location_item):
         messages.append(f"No valid GEV fit for location {loc_id}")
         return loc_id, None, messages
 
-    #export_path_site = None
-    #if export_report and path_export:
-    #    export_path_site = ut.save_location_results(
-    #        location_id=loc_id,
-    #        result_location=result,
-    #        base_dir=path_export + '/gev_analysis/pooled/',
-    #        plot_period_evolution=plot_period_evolution,
-    #        display_results=display_results
-    #    )
-    #result['file_path_report'] = export_path_site
-    
     return {
         "loc_id": loc_id,
         "data": df_prepared,
@@ -88,25 +69,16 @@ def process_location(location_item):
     }
 
 
-def run_gev_parallel(dic_data_per_location, location_labels, n_jobs=None):
+def run_gev_parallel(dic_data_per_location:dict, location_labels, n_jobs=None)->tuple[dict,list]:
     if n_jobs is None:
         n_jobs = max(1, mp.cpu_count() - 1)
 
     set_location_labels(location_labels)
 
-    items = list(dic_data_per_location.items())
     out = Parallel(n_jobs=n_jobs, backend='loky', verbose=10)(
-        delayed(process_location)(item) for item in items
+    delayed(process_location)(item) for item in list(dic_data_per_location.items())
     )
-
-    #results = {}
-    #ls_notes = []
-    #for loc_id, result, messages in out:
-    #    if messages:
-    #        ls_notes.extend(messages)
-    #    if result is not None:
-    #        results[loc_id] = result
-            
+    
     all_data = []
     results = {}
     location_info = {}
@@ -131,7 +103,7 @@ def run_gev_parallel(dic_data_per_location, location_labels, n_jobs=None):
     }, ls_notes
 
 
-def run_annual_gev(results):
+def run_annual_gev(results:dict)->tuple[dict,list]:
     results_extended, ls_notes_analysis = gev.execute_and_store_stat_gev_per_year_mp(
         results=results, store_results=False, return_periods=return_periods
     )
@@ -139,6 +111,18 @@ def run_annual_gev(results):
     for key, outer_list in ls_notes_analysis.items():
         ls_notes_analysis[key] = [inner for inner in outer_list if inner]
     return results_extended, ls_notes_analysis
+
+
+def run_weighted_least_square_regression(results: dict)->dict:
+    results_parallel = Parallel(n_jobs=-1)(
+    delayed(gev.weighted_least_square_regression_for_site_mp)(site_id, results[site_id])
+        for site_id in tqdm(list(results.keys()))
+    )
+
+    for site_id, analysis_dict in results_parallel:
+        results.setdefault(site_id, {}).update(analysis_dict)
+        
+    return results
 
 
 # --------------------------------------------------------------------------
@@ -159,23 +143,23 @@ def main(args):
 
     dic_notes_analysis = {}  
     if 'pooled' in ls_jobs or 'map' in ls_jobs:
-        logger.info('\nComputing stationary and non-stationary GEV analysis with all (pooled) data...')
+        logger.info('Computing stationary and non-stationary GEV analysis with all (pooled) data...')
 
         ls_files = sorted(glob.glob(os.path.join(args.input_dir, args.pattern)))
         if not ls_files:
             raise FileNotFoundError(f"No files found in {args.input_dir} matching {args.pattern}")
 
         dic_notes_analysis = {}
-        logger.info('\nImporting data...')
+        logger.info('Importing data...')
         dic_data_per_model = dbf.import_all_models(ls_files)
         
-        logger.info('\nPooling and preparing data...')
+        logger.info('Pooling and preparing data...')
         dic_data_per_model, combined, notes_overview = dbf.prepare_combined_data(ls_files, dic_data_per_model)
         dic_notes_analysis['data overview'] = notes_overview
         
         if 'map' in ls_jobs:
             logger.info(
-                f'\nCreating map of locations with missing data with saving selected as {save_plots} '
+                f'Creating map of locations with missing data with saving selected as {save_plots} '
                 '(if preferred otherwise, update save_plots)...'
                 )
             missing_locations = dbf.create_summary_location_w_missing_data(
@@ -185,13 +169,13 @@ def main(args):
             )
             dic_notes_analysis['data pooling'] = [f"{len(missing_locations)} locations without any valid data found!"]
 
-        logger.info('\nRearranging data to sort per location...')    
+        logger.info('Rearranging data to sort per location...')    
         dic_data_per_location = dbf.extract_location_data(combined, hindcast_start, hindcast_end)
         
         if args.start_loc is not None or args.end_loc is not None: 
             start_loc = args.start_loc if args.start_loc is not None else min(dic_data_per_location.keys()) 
             end_loc = args.end_loc if args.end_loc is not None else max(dic_data_per_location.keys())
-            dic_data_per_location = select_allowed_locations(
+            dic_data_per_location = ut.select_allowed_locations(
                 dic_data_per_location=dic_data_per_location, 
                 start_loc=start_loc,
                 end_loc=end_loc
@@ -201,15 +185,15 @@ def main(args):
         else:
             logger.info(f"Processing all {len(dic_data_per_location)} locations")
         
-        logger.info('\nPrecomputing location labels...')
+        logger.info('Precomputing location labels...')
         location_labels = dbf.precompute_location_labels(dic_data_per_location)
 
-        logger.info('\nRun GEV analysis with pooled data...')
+        logger.info('Run GEV analysis with pooled data...')
         output, ls_notes = run_gev_parallel(dic_data_per_location, location_labels)  
         results = output['results']  
         dic_notes_analysis['GEV pooled analysis'] = ls_notes
         
-        logger.info('\nSaving data per artifacts...')   
+        logger.info('Saving data per artifacts...')   
         today_ = str(datetime.today().date().isoformat())   
         path_child_folder = Path(path_export) / "gev_analysis" / "pooled" / f"{today_}"
         ut.save_pooled_results(results=results, data=output['data'], base_dir=path_child_folder)
@@ -228,13 +212,20 @@ def main(args):
                     linestyle_trends=['dashdot', 'dashed', 'solid'], 
                     fontsize=12, figsize=(15, 7.5),
                     )
+                
+                lat = str(result['location info']['lat'].round(3))
+                lon = str(result['location info']['lon'].round(3))
+                country = result['location info']['description'].split(',')[-1].strip()
         
-                fig.savefig(fig_dir / f"location_{loc_id}.png", dpi=150, bbox_inches="tight")
+                fig.savefig(
+                    fig_dir / f"location_{loc_id}_{country}_{lat}_{lon}_pooledGEVanalysis.png", 
+                    dpi=150, bbox_inches="tight"
+                    )
                 plt.close(fig)
-        logger.info('\nData (and Figures) successfully saved per artifacts.')        
+        logger.info('Data (and Figures) successfully saved per artifacts.')        
 
     if 'annual-stationary' in ls_jobs:
-        logger.info('\nComputing stationary GEV analysis per year...')
+        logger.info('Computing stationary GEV analysis per year...')
 
         try:
             results.keys()
@@ -242,14 +233,57 @@ def main(args):
             
         except NameError:
             path_import = os.path.join(args.input_dir)
-            logger.info(f'\nImport data from folder {path_import}...')
+            logger.info(f'Import data from folder {path_import}...')
             results = ut.load_pooled_results(path_import)
-            logger.info(f'imported {len(results)} locations')
+            logger.info(f'Imported {len(results)} locations')
 
         if args.start_loc is not None or args.end_loc is not None: 
             start_loc = args.start_loc if args.start_loc is not None else min(dic_data_per_location.keys()) 
             end_loc = args.end_loc if args.end_loc is not None else max(dic_data_per_location.keys())
-            results = select_allowed_locations(
+            results = ut.select_allowed_locations(
+                dic_data_per_location=results, 
+                start_loc=start_loc,
+                end_loc=end_loc
+                )
+            logger.info(f"Processing locations {start_loc} to {end_loc} ({len(results)} total)")
+        
+        else:
+            logger.info(f"Processing all {len(results)} locations")
+        
+        logger.info(f'Run annual stationary GEV analysis...')
+        results_extended, ls_notes_analysis = run_annual_gev(results)
+        dic_notes_analysis['annual_statGEV'] = ls_notes_analysis
+        
+        ut.save_annual_stationary_results(
+            results={
+                site_id: {"fit results": site_data["fit results"]}
+                for site_id, site_data in results_extended.items()
+                if "fit results" in site_data
+                },
+            base_dir=path_import
+        )
+        logger.info(f'Results successfully added/stored in fit results.pkl {path_import}.')
+
+    if 'regression' in ls_jobs:
+        logger.info(
+            'Compute regression for location parameter using non-stationary and annual stationary GEV approach...'
+            )
+        
+        try:
+            results.keys()
+            logger.info('✓ continue with available dictionary')
+            
+        except NameError:
+            path_import = os.path.join(args.input_dir)
+            logger.info(
+                f'Import fit results for annual stationary and non-stationary GEV analysis from folder {path_import}...'
+                )
+            results = ut.load_fit_results(path_import)
+    
+        if args.start_loc is not None or args.end_loc is not None: 
+            start_loc = args.start_loc if args.start_loc is not None else min(dic_data_per_location.keys()) 
+            end_loc = args.end_loc if args.end_loc is not None else max(dic_data_per_location.keys())
+            results = ut.select_allowed_locations(
                 dic_data_per_location=results, 
                 start_loc=start_loc,
                 end_loc=end_loc
@@ -259,47 +293,17 @@ def main(args):
         else:
             logger.info(f"Processing all {len(results)} locations")
         
-        logger.info('\nRun annual stationary GEV analysis...')
-        results_extended, ls_notes_analysis = run_annual_gev(results)
-        dic_notes_analysis['annual_statGEV'] = ls_notes_analysis
+        results = run_weighted_least_square_regression(results)
         
-        today_ = str(datetime.today().date().isoformat())   
-        path_child_folder = Path(path_export) / "gev_analysis" / "pooled" / f"{today_}"
-        
-        ut.save_pooled_results(
-            results={
-                site_id: {"fit results": site_data["fit results"]}
-                for site_id, site_data in results_extended.items()
-                if "fit results" in site_data
-                },
-            data=[], 
-            base_dir=path_child_folder
-        )
+        logger.info("WLS Regression for done; now plotting regression (and saving)...")
+        ut.plot_and_save_regression_analysis(results=results, path_export=path_import, save_output=save_plots)
 
-    if 'regression' in ls_jobs:
-        logger.info(
-            'Compute regression for location parameter using non-stationary and annual stationary GEV approach...'
-            )
-        try:
-            results.keys()
-            logger.info('✓ continue with available dictionary')
-            
-        except NameError:
-            path_import = os.path.join(path_export, 'gev_analysis','pooled/')
-            logger.info(f'\nImport data from folder {path_import}...')
-            results = ut.load_pooled_results(path_import)
-    
-        results_extended_list = Parallel(n_jobs=-1, backend='threading')(
-            delayed(process_location)(site_id, dic_location, display_results, save_regression_summary)
-            for site_id, dic_location in results_extended.items()
-        )
-        results_extended = {site_id: dic_location for site_id, dic_location in results_extended_list}
 
-    logger.info('\nAll analyses done; next store output...')
+    logger.info('All analyses done; next store output...')
     ut.store_analysis_notes(dic_notes_analysis, path_export + 'gev_analysis/pooled/')
 
     # ---------------------------------------------------------------------------------------
-    logger.info(f"\nAnalysis completed. Log saved at {log_path}")
+    logger.info(f"Analysis completed. Log saved at {log_path}")
 
     logger.removeHandler(fh)
     fh.close()
@@ -311,7 +315,7 @@ if __name__ == "__main__":
     
     parser.add_argument(
         "-input_dir", type=str, required=True,
-        help="Path to directory containing input NetCDF files (*.nc)"
+        help="Path to directory containing input files."
     )
     
     parser.add_argument(
@@ -321,24 +325,28 @@ if __name__ == "__main__":
     
     parser.add_argument(
         "--jobs", type=str, default=None,
-        help="Started list of jobs to execute; available jobs are: pooled, annual-stationary, regression, map"
+        help="List of jobs to execute; available jobs are: pooled, annual-stationary, regression, map"
     )
     
     parser.add_argument(
         "-start_loc", type=int, default=None,
-        help="Start location ID (inclusive) to process"
+        help="Start location ID (inclusive) to process. Default is None."
     )
     
     parser.add_argument(
         "-end_loc", type=int, default=None,
-        help="End location ID (inclusive) to process"
+        help="End location ID (inclusive) to process. Default is None."
     )
     
     parser.add_argument(
-        "-save_plots", type=bool, default=False,
-        help="Boolean whether to save figures/panels in output folder or not (time-consuming!)"
+        "-save_plots", type=bool, default=True,
+        help="Boolean whether to save figures/panels in output folder or not (time-consuming!). Default is True"
     )    
     
     args = parser.parse_args()
 
+    main(args)
+    main(args)
+    main(args)
+    main(args)
     main(args)

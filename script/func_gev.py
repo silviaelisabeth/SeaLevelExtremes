@@ -17,6 +17,7 @@ from pandas import DataFrame, to_numeric
 from scipy import optimize, stats
 from scipy.optimize import approx_fprime, minimize
 from scipy.stats import norm
+from tqdm import tqdm
 
 logger = logging.getLogger("gev_analysis")
 
@@ -602,7 +603,7 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
         en = 0
         for year, group in grp_per_year:
             en+=1
-            logger.info(f"\t...{int(year)} (#{en} out of {len(grp_per_year)} years)", end="\r") 
+            logger.info(f"\t...{int(year)} (#{en} out of {len(grp_per_year)} years)") 
 
             data = (group
                     .sort_values('year')
@@ -612,6 +613,7 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
             annual_max_for_year = data['annual_max'].values
             
             gev_stationary, message = fit_stationary_gev(annual_max_for_year, int(year))
+            logger.info(message)
             ls_notes.append(message)
             if gev_stationary:
                 cov_stationary = compute_cov_matrix(gev_stationary, annual_max_for_year)
@@ -649,7 +651,10 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
 
 def process_site_stat_gev(site_id, site_data, return_periods, store_results:bool = False):
     ls_notes = []
-    grp_per_year = site_data['data'].groupby('year')
+    
+    columns = site_data['data']
+    year_col = "year" if "year" in columns else "sim_year" if "sim_year" in columns else None
+    grp_per_year = site_data['data'].groupby(year_col)
     
     message = f"Conducting stationary GEV for siteID {site_id} grouped per year..."
     logger.info(message)
@@ -659,9 +664,9 @@ def process_site_stat_gev(site_id, site_data, return_periods, store_results:bool
     results_return_values_per_year = dict()
 
     for en, (year, group) in enumerate(grp_per_year, start=1):
-        logger.info(f"\t...{int(year)} (#{en} out of {len(grp_per_year)} years)", end="\r")
+        logger.info(f"\tsiteID {site_id}...{int(year)} (#{en} out of {len(grp_per_year)} years)")
         data = (group
-                .sort_values('year')
+                .sort_values(year_col)
                 .reset_index(drop=True)
                 .rename(columns={'storm_surge': 'annual_max'})
                 .dropna())
@@ -710,11 +715,11 @@ def process_site_stat_gev(site_id, site_data, return_periods, store_results:bool
 
 
 def execute_and_store_stat_gev_per_year_mp(results: dict, store_results: bool, return_periods: list) -> dict:
-    parallel_results = Parallel(n_jobs=-1, backend='threading')(
-        delayed(process_site_stat_gev)(site_id, site_data, return_periods, store_results)
-        for site_id, site_data in results.items()
+    parallel_results = Parallel(n_jobs=-1)(
+        delayed(process_site_stat_gev)(site_id, results[site_id], return_periods, store_results)
+        for site_id in tqdm(list(results.keys()))
     )
-    
+        
     dic_notes = {}
     for site_id, site_result, ls_notes in parallel_results:
         results[site_id]['fit results'] = site_result['fit results']
@@ -743,6 +748,28 @@ def weighted_least_square_regression_annual_location(global_statgev_scale, globa
     y_pred = wls_delta.predict(X_pred)
 
     return df, wls_delta, weights, y_pred, year_grid, year_mean
+
+
+def weighted_least_square_regression_for_site_mp(site_id, dic_location):
+    """Perform the WLS regression for one site, return the results needed for later plotting/saving."""
+    df_stat_gev_per_year = dic_location['fit results']['gev_stationary']['analysis_per_year'].dropna()
+    df = df_stat_gev_per_year.reset_index().rename(columns={'index': 'year'})
+
+    global_statgev_shape = dic_location['fit results']['gev_stationary']['shape']
+    global_statgev_scale = dic_location['fit results']['gev_stationary']['scale']
+
+    df, wls_delta, weights, y_pred, year_grid, year_mean = weighted_least_square_regression_annual_location(
+        global_statgev_scale, global_statgev_shape, df
+    )
+
+    return site_id, {
+        'df': df,
+        'wls_delta': wls_delta,
+        'weights': weights,
+        'y_pred': y_pred,
+        'year_grid': year_grid,
+        'year_mean': year_mean
+    }
 
 
 def analyze_per_location(
@@ -1005,6 +1032,8 @@ def store_report_stationary_gev_per_year(site_data:dict) -> None:
 
     meta_path = Path(site_data['file_path_report']).with_name(Path(site_data['file_path_report']).stem + "_metadata.parquet")
     DataFrame({'metadata': [metadata]}).to_parquet(meta_path, index=False)
+    site_data['file_path_metadata'] = str(meta_path)
+    site_data['file_path_metadata'] = str(meta_path)
     site_data['file_path_metadata'] = str(meta_path)
     site_data['file_path_metadata'] = str(meta_path)
     site_data['file_path_metadata'] = str(meta_path)

@@ -356,6 +356,38 @@ def load_pooled_results(base_dir: Union[str, Path]) -> dict[int, dict[str, any]]
     return results
 
 
+def load_fit_results(base_dir: Union[str, Path]) -> dict[int, dict[str, any]]:
+    """
+    Load pooled results stored in artifact-centric format:
+      - DataFrames: *.parquet (with location_id column)
+      - Python objects: *.pkl (dict keyed by location_id)
+
+    Returns:
+        results: Dict[location_id -> dict of artifact_name -> artifact]
+    """
+    base_dir = Path(base_dir)
+    fit_results: dict[int, dict[str, any]] = {}
+
+    for pickle_file in base_dir.glob("*.pkl"):
+        key = pickle_file.stem
+        if key == 'fit results':
+            with open(pickle_file, "rb") as f:
+                obj = pickle.load(f)
+                for loc_id, value in obj.items():
+                    fit_results.setdefault(int(loc_id), {})[key] = value
+
+    return fit_results
+
+
+def select_allowed_locations(dic_data_per_location, start_loc, end_loc):
+    dic_data_per_location = {
+        loc_id: df
+        for loc_id, df in dic_data_per_location.items()
+        if start_loc <= loc_id <= end_loc
+    }
+    return dic_data_per_location
+
+
 def hex_to_rgba(hex_color:str)->list[int]:
     hex_color = hex_color.lstrip('#')
     r = int(hex_color[0:2], 16)
@@ -432,6 +464,93 @@ def save_pooled_results(results: dict[int, dict], data, base_dir: str) -> None:
         with open(base_dir / f"{key}.pkl", "wb") as f:
             pickle.dump(obj, f, protocol=5)
 
-    df_all_data = concat(data, ignore_index=True)
-    df_all_data.to_parquet(base_dir / "data.parquet", index=False)
+    if data: 
+        df_all_data = concat(data, ignore_index=True)
+        df_all_data.to_parquet(base_dir / "data.parquet", index=False)
 
+
+def deep_merge_dicts(d_old: dict, d_new: dict) -> dict:
+    """Recursively merge d_new into d_old."""
+    for k, v in d_new.items():
+        if k in d_old and isinstance(d_old[k], dict) and isinstance(v, dict):
+            d_old[k] = deep_merge_dicts(d_old[k], v)
+        else:
+            d_old[k] = v
+    return d_old
+
+
+def save_annual_stationary_results(results: dict[int, dict], base_dir: str) -> None:
+    """
+    results: dict[location_id -> result_location dict]
+    data: list of DataFrames to concatenate
+    base_dir: str
+    """
+    base_dir = Path(base_dir)
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    pickle_buffers = {}
+
+    for loc_id, result in results.items():
+        for key, value in result.items():
+            if isinstance(value, DataFrame):
+                print('skipping parquet')
+            else:
+                pickle_buffers.setdefault(key, {})[loc_id] = value
+
+
+    for key, obj in pickle_buffers.items():
+        pickle_path = base_dir / f"{key}.pkl"
+
+        if pickle_path.exists():
+            with open(pickle_path, "rb") as f:
+                existing_obj = pickle.load(f)
+
+            for loc_id, new_value in obj.items():
+                if loc_id in existing_obj:
+                    if isinstance(existing_obj[loc_id], dict) and isinstance(new_value, dict):
+                        existing_obj[loc_id] = deep_merge_dicts(existing_obj[loc_id], new_value)
+                    else:
+                        existing_obj[loc_id] = new_value
+                else:
+                    existing_obj[loc_id] = new_value
+
+            obj = existing_obj
+
+        with open(pickle_path, "wb") as f:
+            pickle.dump(obj, f, protocol=5)
+
+
+def plot_and_save_regression_analysis(
+    results, path_export:str, display_results:bool=False, save_output:bool=True, 
+    colors_reg:list=['#333333FF', '#C88D35FF'], color_marker:str='#99E3DDFF'
+    ) -> None:
+    
+    for site_id, dic_location in results.items():
+        wls_delta = dic_location['WLSdelta']['summary']
+
+        fig = dbplt.plot_gev_mu_trend(
+            df=dic_location['df_for_plot'],
+            weights=dic_location['WLSdelta']['weights'],
+            year_grid=dic_location['year_grid'],
+            year_mean=dic_location['year_mean'],
+            y_pred=dic_location['y_pred'],
+            wls_delta=wls_delta,
+            nonstat_years=dic_location['data'].year.values.astype(int), 
+            nonstat=dic_location['fit results']['gev_nonstationary'],
+            display_results=display_results,
+            colors_reg=colors_reg,
+            markers_color=color_marker,
+        )
+
+        if save_output:
+            save_dir = Path(path_export)
+            save_dir.mkdir(parents=True, exist_ok=True) 
+
+            with open(save_dir + '/WLSdelta_summary.html', 'w') as f:
+                f.write(wls_delta.summary().as_html())
+
+            lat = str(dic_location['location info']['lat'].round(3))
+            lon = str(dic_location['location info']['lon'].round(3))
+            country = dic_location['location info']['description'].split(',')[-1].strip()  
+            file_name = f"location_{str(site_id)}_{country}_{lat}_{lon}_GEVTrendAnalysis.png"
+            fig.savefig(save_dir + "/figures/" + file_name, dpi=300, bbox_inches='tight')
