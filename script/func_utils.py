@@ -570,6 +570,5 @@ def plot_and_save_regression_analysis(
 
             lat = str(lat_loc.round(3))
             lon = str(lon_loc.round(3))
-            country = dic_location['location info']['description'].split(',')[-1].strip()  
             file_name = f"location_{str(site_id)}_{lat}_{lon}_GEVTrendAnalysis.png"
             fig.savefig(save_dir + "/figures/" + file_name, dpi=300, bbox_inches='tight')
