@@ -86,6 +86,9 @@ def plot_gev_mu_trend(
     wls_delta:RegressionResultsWrapper,
     nonstat_years: array,
     nonstat: dict,
+    lat:float,
+    lon:float,
+    site_id:int,
     display_results: bool = True,
     fontsize: float = 11,
     figsize: tuple[float, float] = (13, 3.5), 
@@ -151,7 +154,10 @@ def plot_gev_mu_trend(
     ax.tick_params(axis='y', colors=axes_color)
 
     ax.grid(True, alpha=0.3, color='lightgrey')
-    ax.set_title('GEV μ Trend with Fixed Scale & Shape', fontsize=fontsize*1.25)
+    ax.set_title(
+        f'GEV μ Trend with Fixed Scale & Shape for lat|lon {lat:.3f}|{lon:.3f} (siteID {site_id})', 
+        fontsize=fontsize*1.25
+        )
     ax.set_xlabel('Year', fontsize=fontsize)
     ax.set_ylabel('GEV location parameter', fontsize=fontsize)
 

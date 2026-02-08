@@ -366,7 +366,7 @@ def load_fit_results(base_dir: Union[str, Path]) -> dict[int, dict[str, any]]:
         results: Dict[location_id -> dict of artifact_name -> artifact]
     """
     base_dir = Path(base_dir)
-    fit_results: dict[int, dict[str, any]] = {}
+    results: dict[int, dict[str, any]] = {}
 
     for pickle_file in base_dir.glob("*.pkl"):
         key = pickle_file.stem
@@ -374,9 +374,18 @@ def load_fit_results(base_dir: Union[str, Path]) -> dict[int, dict[str, any]]:
             with open(pickle_file, "rb") as f:
                 obj = pickle.load(f)
                 for loc_id, value in obj.items():
-                    fit_results.setdefault(int(loc_id), {})[key] = value
+                    results.setdefault(int(loc_id), {})[key] = value
+    
+    for parquet_file in base_dir.glob("*.parquet"):
+        key = parquet_file.stem
+        df = read_parquet(parquet_file)
+        if "location_id" in df.columns:
+            for loc_id, df_loc in df.groupby("location_id"):
+                results.setdefault(int(loc_id), {})[key] = df_loc.drop(columns="location_id")
+        else:
+            results.setdefault(0, {})[key] = df
 
-    return fit_results
+    return results
 
 
 def select_allowed_locations(dic_data_per_location, start_loc, end_loc):
@@ -524,33 +533,43 @@ def plot_and_save_regression_analysis(
     results, path_export:str, display_results:bool=False, save_output:bool=True, 
     colors_reg:list=['#333333FF', '#C88D35FF'], color_marker:str='#99E3DDFF'
     ) -> None:
+    for col_label in ('year', 'sim_year'):
+        if col_label in results[0]['data'].columns:
+            break
+    else:
+        raise ValueError(f'No year found in data table: {results[0]['data'].columns}')
     
     for site_id, dic_location in results.items():
-        wls_delta = dic_location['WLSdelta']['summary']
+        wls_delta = dic_location['wls_delta']
+        lat_loc = dic_location['data']['lat'].unique()[0]
+        lon_loc = dic_location['data']['lon'].unique()[0]
 
         fig = dbplt.plot_gev_mu_trend(
-            df=dic_location['df_for_plot'],
-            weights=dic_location['WLSdelta']['weights'],
+            df=dic_location['df'],
+            weights=dic_location['weights'],
             year_grid=dic_location['year_grid'],
             year_mean=dic_location['year_mean'],
             y_pred=dic_location['y_pred'],
             wls_delta=wls_delta,
-            nonstat_years=dic_location['data'].year.values.astype(int), 
+            nonstat_years=dic_location['data'][col_label].values.astype(int), 
             nonstat=dic_location['fit results']['gev_nonstationary'],
             display_results=display_results,
             colors_reg=colors_reg,
             markers_color=color_marker,
+            lat=lat_loc,
+            lon=lon_loc,
+            site_id=site_id,
         )
 
         if save_output:
             save_dir = Path(path_export)
             save_dir.mkdir(parents=True, exist_ok=True) 
 
-            with open(save_dir + '/WLSdelta_summary.html', 'w') as f:
+            with open(save_dir / 'WLSdelta_summary.html', 'w') as f:
                 f.write(wls_delta.summary().as_html())
 
-            lat = str(dic_location['location info']['lat'].round(3))
-            lon = str(dic_location['location info']['lon'].round(3))
+            lat = str(lat_loc.round(3))
+            lon = str(lon_loc.round(3))
             country = dic_location['location info']['description'].split(',')[-1].strip()  
             file_name = f"location_{str(site_id)}_{country}_{lat}_{lon}_GEVTrendAnalysis.png"
             fig.savefig(save_dir + "/figures/" + file_name, dpi=300, bbox_inches='tight')

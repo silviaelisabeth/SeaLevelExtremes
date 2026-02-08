@@ -293,7 +293,7 @@ def main(args):
 
         else:
             logger.info(f"Processing all {len(results)} locations")
-        
+
         results = run_weighted_least_square_regression(results)
         
         logger.info("WLS Regression for done; now plotting regression (and saving)...")
