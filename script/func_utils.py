@@ -565,10 +565,12 @@ def plot_and_save_regression_analysis(
             save_dir = Path(path_export)
             save_dir.mkdir(parents=True, exist_ok=True) 
 
-            with open(save_dir / 'WLSdelta_summary.html', 'w') as f:
+            with open(save_dir / 'WLSdelta_summary.html', 'a') as f:
+                f.write(f"<h2>location {site_id}</h2>\n")
                 f.write(wls_delta.summary().as_html())
+                f.write("<hr>\n")
 
             lat = str(lat_loc.round(3))
             lon = str(lon_loc.round(3))
             file_name = f"location_{str(site_id)}_{lat}_{lon}_GEVTrendAnalysis.png"
-            fig.savefig(save_dir + "/figures/" + file_name, dpi=300, bbox_inches='tight')
+            fig.savefig(save_dir / "figures" / file_name, dpi=300, bbox_inches='tight')
