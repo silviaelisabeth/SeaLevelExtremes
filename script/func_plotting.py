@@ -128,12 +128,19 @@ def plot_gev_mu_trend(
         year_grid, y_pred, color='black', 
         label=f'Annual stationary μ(t)\nslope={slope:.5f}, intercept={intercept:.4f} (centered {int(year_mean)})'
     )
-    ax.plot(
-        nonstat_years, nonstat['CI']['mu_pred'], color=colors_reg[1], linewidth=1.5,
-        label=(
-            f'Non-stationary μ(t)\nslope={nonstat['mu1']:.5f}, intercept={nonstat['mu0']:.4f} (centered {int(year_mean)})'
-        ), alpha=0.8
-    )
+    if nonstat['CI'] is not None and 'mu_pred' in nonstat['CI']:
+        ax.plot(
+            nonstat_years,
+            nonstat['CI']['mu_pred'],
+            color=colors_reg[1],
+            linewidth=1.5,
+            label=(
+                f"Non-stationary μ(t)\nslope={nonstat['mu1']:.5f}, intercept={nonstat['mu0']:.4f} (centered {int(year_mean)})"
+            ),
+            alpha=0.8
+        )
+    else:
+        logger.info("nonstat['CI'] is None or missing 'mu_pred'")
 
     ax.fill_between(year_grid, y_lower, y_upper, color=colors_reg[0], alpha=0.15, label='95% CI (annual stationary)')
     ax.fill_between(

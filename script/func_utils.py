@@ -533,11 +533,12 @@ def plot_and_save_regression_analysis(
     results, path_export:str, display_results:bool=False, save_output:bool=True, 
     colors_reg:list=['#333333FF', '#C88D35FF'], color_marker:str='#99E3DDFF'
     ) -> None:
+    key_ex = list(results.keys())[0]
     for col_label in ('year', 'sim_year'):
-        if col_label in results[0]['data'].columns:
+        if col_label in results[key_ex]['data'].columns:
             break
     else:
-        raise ValueError(f'No year found in data table: {results[0]['data'].columns}')
+        raise ValueError(f'No year found in data table: {results[key_ex]['data'].columns}')
     
     for site_id, dic_location in results.items():
         wls_delta = dic_location['wls_delta']
