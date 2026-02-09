@@ -128,7 +128,9 @@ def plot_gev_mu_trend(
         year_grid, y_pred, color='black', 
         label=f'Annual stationary μ(t)\nslope={slope:.5f}, intercept={intercept:.4f} (centered {int(year_mean)})'
     )
-    if nonstat['CI'] is not None and 'mu_pred' in nonstat['CI']:
+    ax.fill_between(year_grid, y_lower, y_upper, color=colors_reg[0], alpha=0.15, label='95% CI (annual stationary)')
+    
+    if nonstat is not None and isinstance(nonstat, dict) and nonstat.get('CI') is not None and 'mu_pred' in nonstat['CI']:
         ax.plot(
             nonstat_years,
             nonstat['CI']['mu_pred'],
@@ -139,14 +141,12 @@ def plot_gev_mu_trend(
             ),
             alpha=0.8
         )
+        ax.fill_between(
+            nonstat_years, nonstat['CI']['mu_lower'], nonstat['CI']['mu_upper'], color=colors_reg[1], 
+            alpha=0.15, label='95% CI (non-stationary)'
+        )
     else:
         logger.info("nonstat['CI'] is None or missing 'mu_pred'")
-
-    ax.fill_between(year_grid, y_lower, y_upper, color=colors_reg[0], alpha=0.15, label='95% CI (annual stationary)')
-    ax.fill_between(
-        nonstat_years, nonstat['CI']['mu_lower'], nonstat['CI']['mu_upper'], color=colors_reg[1], 
-        alpha=0.15, label='95% CI (non-stationary)'
-        )
 
     leg = ax.legend(loc=0, edgecolor=axes_color, borderpad=.65, fontsize=fontsize*0.75)
     leg.get_frame().set_linewidth(.5)
