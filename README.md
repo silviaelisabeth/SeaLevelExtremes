@@ -92,16 +92,17 @@ usage: GEVanalysis.py [-h] -input_dir INPUT_DIR [--pattern PATTERN] [--jobs JOBS
                       [-save_plots SAVE_PLOTS]
 
 options:
-  -h, --help              Show this help message and exit
-  -input_dir INPUT_DIR    Path to directory containing input files.
-  --pattern PATTERN       Filename pattern to match NetCDF files (default: '*.nc').
-  --jobs JOBS             Comma-separated string of jobs to execute. 
-                          Available jobs: `pooled`, `annual-stationary`, `regression`, `map`.
-  -start_loc START_LOC    Start location ID (inclusive) to process (default None).
-  -end_loc END_LOC        End location ID (inclusive) to process (default None).
-  -save_plots SAVE_PLOTS  Boolean whether to save figures/panels in output folder or not (time-consuming!)
-                          (default True).
-
+  -h, --help                    Show this help message and exit
+  -input_dir INPUT_DIR          Path to directory containing input files.
+  --pattern PATTERN             Filename pattern to match NetCDF files (default: '*.nc').
+  --jobs JOBS                   Comma-separated string of jobs to execute. 
+                                Available jobs: `pooled`, `annual-stationary`, `regression`, `map`.
+  -start_loc START_LOC          Start location ID (inclusive) to process (default None).
+  -end_loc END_LOC              End location ID (inclusive) to process (default None).
+  -save_plots SAVE_PLOTS        Boolean whether to save figures in output folder or not (time-consuming!)
+                                (default True).
+  --save_results SAVE_RESULTS   Boolean whether to save fit results in output folder or not
+                                (default True).
 ```
 
 The script will then
