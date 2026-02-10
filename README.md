@@ -89,7 +89,7 @@ python3 GEVanalysis.py --input_dir "/path/to/netcdf/files" --pattern "_.nc"
 
 >>Run GEV analysis for multiple locations
 usage: GEVanalysis.py [-h] -input_dir INPUT_DIR [--pattern PATTERN] [--jobs JOBS] [-start_loc START_LOC] [-end_loc END_LOC]
-                      [-save_plots SAVE_PLOTS]
+                      [-save_plots SAVE_PLOTS] [-save_results SAVE_RESULTS]
 
 options:
   -h, --help                    Show this help message and exit
