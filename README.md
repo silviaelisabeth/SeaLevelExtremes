@@ -37,8 +37,9 @@ You can view the interactive map of all locations [here](https://drive.google.co
   - Parallelized workflow using `joblib` for efficient processing of thousands of locations.
 
 - **Annual extreme value statistics**
-  - Computes per-year GEV statistics for stationary and non-stationary fits.
-  - Weighted least squares regression to assess temporal trends.
+  - Computes non-stationary and stationary GEV statistics for pooled dataset and annaul stationary GEV fits.
+  - Weighted least squares regression to assess temporal trends including uncertainty estiamtes using delta method.
+  - Shape and scale parameters are kept cosntant (from pooled analysis).
 
 - **Visualization and reporting**
   - Plots μ-trends (location parameter) over time for each site.
