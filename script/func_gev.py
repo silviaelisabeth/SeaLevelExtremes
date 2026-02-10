@@ -326,9 +326,7 @@ def calculate_return_levels(
     if gev_params is None:
         return None
     
-    # compute mu, sigma, xi as before
     if 'trend_in' in gev_params:
-        # non-stationary GEV
         if year is None:
             year = gev_params['years_mean']
         t = (year - gev_params['years_mean']) / gev_params['years_std']
@@ -346,7 +344,6 @@ def calculate_return_levels(
             sigma = gev_params['sigma0'] + gev_params['sigma1'] * t
             xi = gev_params['xi']
     else:
-        # stationary GEV
         mu = gev_params['location']
         sigma = gev_params['scale']
         xi = gev_params['shape']
@@ -360,10 +357,8 @@ def calculate_return_levels(
         else:
             z_T = mu + (sigma / xi) * ((-log(p))**(-xi) - 1)
         
-        # include uncertainty if covariance matrix is given
         if cov_matrix is not None:
             if 'trend_in' in gev_params and gev_params['trend_in'] == 'location':
-                # Gradient for non-stationary μ(t)
                 dz_dmu0 = 1
                 dz_dmu1 = t
                 dz_dsigma = ((-log(p))**(-xi) - 1)/xi if abs(xi) >= 1e-10 else -log(-log(p))
@@ -371,14 +366,12 @@ def calculate_return_levels(
                           (sigma/xi) * ((-log(p))**(-xi) * log(-log(p)))) if abs(xi) >= 1e-10 else 0
                 grad = array([dz_dmu0, dz_dmu1, dz_dsigma, dz_dxi])
             else:
-                # Stationary gradient
                 dz_dmu = 1
                 dz_dsigma = ((-log(p))**(-xi) - 1)/xi if abs(xi) >= 1e-10 else -log(-log(p))
                 dz_dxi = (-sigma/xi**2 * ((-log(p))**(-xi)-1) +
                           (sigma/xi) * ((-log(p))**(-xi) * log(-log(p)))) if abs(xi) >= 1e-10 else 0
                 grad = array([dz_dmu, dz_dsigma, dz_dxi])
 
-            # Delta-method variance
             var_z = grad.T @ cov_matrix @ grad
             ci_lower = z_T - 1.96 * sqrt(var_z) if var_z >= 0 else z_T
             ci_upper = z_T + 1.96 * sqrt(var_z) if var_z >= 0 else z_T

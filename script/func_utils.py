@@ -12,6 +12,7 @@ from typing import Optional, Union
 import arabic_reshaper
 import func_plotting as dbplt
 from bidi.algorithm import get_display
+from bs4 import BeautifulSoup
 from joblib import Parallel, delayed
 from numpy import isnan, unique
 from pandas import DataFrame, concat, read_parquet
@@ -356,7 +357,7 @@ def load_pooled_results(base_dir: Union[str, Path]) -> dict[int, dict[str, any]]
     return results
 
 
-def load_fit_results(base_dir: Union[str, Path]) -> dict[int, dict[str, any]]:
+def load_fit_results(base_dir: Union[str, Path], wls_file: Optional[str]=None) -> dict[int, dict[str, any]]:
     """
     Load pooled results stored in artifact-centric format:
       - DataFrames: *.parquet (with location_id column)
@@ -384,6 +385,16 @@ def load_fit_results(base_dir: Union[str, Path]) -> dict[int, dict[str, any]]:
                 results.setdefault(int(loc_id), {})[key] = df_loc.drop(columns="location_id")
         else:
             results.setdefault(0, {})[key] = df
+
+    if wls_file:
+        wls_path = base_dir / wls_file
+        if wls_path.exists():
+            with open(wls_path, 'rb') as f:
+                all_wls = pickle.load(f)
+            for loc_id, wls_obj in all_wls.items():
+                results.setdefault(loc_id, {})['WLSdelta'] = wls_obj
+        else:
+            print(f"Could not find WLS pickle file at {wls_path}")
 
     return results
 
@@ -530,7 +541,7 @@ def save_annual_stationary_results(results: dict[int, dict], base_dir: str) -> N
 
 
 def plot_and_save_regression_analysis(
-    results, path_export:str, display_results:bool=False, save_output:bool=True, 
+    results, path_export:str, display_results:bool=False, save_regression:bool=True, save_figures:bool=True, 
     colors_reg:list=['#333333FF', '#C88D35FF'], color_marker:str='#99E3DDFF'
     ) -> None:
     key_ex = list(results.keys())[0]
@@ -544,34 +555,46 @@ def plot_and_save_regression_analysis(
         wls_delta = dic_location['wls_delta']
         lat_loc = dic_location['data']['lat'].unique()[0]
         lon_loc = dic_location['data']['lon'].unique()[0]
-
-        fig = dbplt.plot_gev_mu_trend(
-            df=dic_location['df'],
-            weights=dic_location['weights'],
-            year_grid=dic_location['year_grid'],
-            year_mean=dic_location['year_mean'],
-            y_pred=dic_location['y_pred'],
-            wls_delta=wls_delta,
-            nonstat_years=dic_location['data'][col_label].values.astype(int), 
-            nonstat=dic_location['fit results']['gev_nonstationary'],
-            display_results=display_results,
-            colors_reg=colors_reg,
-            markers_color=color_marker,
-            lat=lat_loc,
-            lon=lon_loc,
-            site_id=site_id,
-        )
-
-        if save_output:
+        
+        if save_regression:
             save_dir = Path(path_export)
             save_dir.mkdir(parents=True, exist_ok=True) 
 
-            with open(save_dir / 'WLSdelta_summary.html', 'a') as f:
-                f.write(f"<h2>location {site_id}</h2>\n")
-                f.write(wls_delta.summary().as_html())
-                f.write("<hr>\n")
+            wls_file = save_dir / 'WLSdelta_summary.pkl'
+            try:
+                with open(wls_file, 'rb') as f:
+                    all_wls = pickle.load(f)
+            except FileNotFoundError:
+                all_wls = {}
+            all_wls[site_id] = wls_delta
 
+            with open(wls_file, 'wb') as f:
+                pickle.dump(all_wls, f)    
+        
+        
+        if save_figures:
+            fig = dbplt.plot_gev_mu_trend(
+                df=dic_location['df'],
+                weights=dic_location['weights'],
+                year_grid=dic_location['year_grid'],
+                year_mean=dic_location['year_mean'],
+                y_pred=dic_location['y_pred'],
+                wls_delta=wls_delta,
+                nonstat_years=dic_location['data'][col_label].values.astype(int), 
+                nonstat=dic_location['fit results']['gev_nonstationary'],
+                display_results=display_results,
+                colors_reg=colors_reg,
+                markers_color=color_marker,
+                lat=lat_loc,
+                lon=lon_loc,
+                site_id=site_id,
+            )
+
+            save_dir = Path(path_export)
+            save_dir.mkdir(parents=True, exist_ok=True) 
+            
             lat = str(lat_loc.round(3))
             lon = str(lon_loc.round(3))
             file_name = f"location_{str(site_id)}_{lat}_{lon}_GEVTrendAnalysis.png"
+            
             fig.savefig(save_dir / "figures" / file_name, dpi=300, bbox_inches='tight')

@@ -139,6 +139,7 @@ def main(args):
         ls_jobs = ls_default
     
     save_plots = args.save_plots
+    save_results = args.save_results
     
     # ---------------------------------------------------------------------------------------
 
@@ -197,8 +198,12 @@ def main(args):
         logger.info('Saving data per artifacts...')   
         today_ = str(datetime.today().date().isoformat())   
         path_child_folder = Path(path_export) / "gev_analysis" / "pooled" / f"{today_}"
-        ut.save_pooled_results(results=results, data=output['data'], base_dir=path_child_folder)
-        
+        if save_results:
+            logger.info('Saving fit results per locaiton...')
+            ut.save_pooled_results(results=results, data=output['data'], base_dir=path_child_folder)
+        else:
+            logger.info('Skip saving fit results...')
+            
         fig_dir = Path(path_child_folder) / "figures"
         fig_dir.mkdir(parents=True, exist_ok=True)
 
@@ -255,16 +260,19 @@ def main(args):
         results_extended, ls_notes_analysis = run_annual_gev(results)
         dic_notes_analysis['annual_statGEV'] = ls_notes_analysis
         
-        ut.save_annual_stationary_results(
-            results={
-                site_id: {"fit results": site_data["fit results"]}
-                for site_id, site_data in results_extended.items()
-                if "fit results" in site_data
-                },
-            base_dir=path_import
-        )
-        logger.info(f'Results successfully added/stored in fit results.pkl {path_import}.')
-
+        if save_results:
+            ut.save_annual_stationary_results(
+                results={
+                    site_id: {"fit results": site_data["fit results"]}
+                    for site_id, site_data in results_extended.items()
+                    if "fit results" in site_data
+                    },
+                base_dir=path_import
+            )
+            logger.info(f'Results successfully added/stored in fit results.pkl {path_import}.')
+        else:
+            logger.info(f'Skipping to save fit results...')
+            
     if 'regression' in ls_jobs:
         logger.info(
             'Compute regression for location parameter using non-stationary and annual stationary GEV approach...'
@@ -296,8 +304,13 @@ def main(args):
 
         results = run_weighted_least_square_regression(results)
         
-        logger.info("WLS Regression for done; now plotting regression (and saving)...")
-        ut.plot_and_save_regression_analysis(results=results, path_export=path_import, save_output=save_plots)
+        logger.info(
+            f"WLS Regression for done; now computing regression and saving results ({save_results}) and "
+            f"figures ({save_plots}) as defined)..."
+            )
+        #ut.plot_and_save_regression_analysis(
+        #    results=results, path_export=path_import, save_regression=save_results, save_figures=save_plots
+        #    )
 
 
     logger.info('All analyses done; next store output...')
@@ -340,9 +353,20 @@ if __name__ == "__main__":
     )
     
     parser.add_argument(
-        "-save_plots", type=bool, default=True,
-        help="Boolean whether to save figures/panels in output folder or not (time-consuming!). Default is True"
-    )    
+        "-save_results", action='store_true', help="Save fit results (default False)"
+    )
+    parser.add_argument(
+        "-no-save_results", dest='save_results', action='store_false', help="Do not save fit results"
+    )
+    parser.set_defaults(save_results=True)  # default can be True  
+        
+    parser.add_argument(
+    "-save_plots", action='store_true', help="Save figures (default False)"
+)
+    parser.add_argument(
+        "-no-save_plots", dest='save_plots', action='store_false', help="Do not save figures"
+    )
+    parser.set_defaults(save_plots=True)
     
     args = parser.parse_args()
 
