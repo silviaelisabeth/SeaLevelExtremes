@@ -87,9 +87,21 @@ You can run the analysis from a terminal or an IDE like PyCharm:
 ```zsh
 python3 GEVanalysis.py --input_dir "/path/to/netcdf/files" --pattern "_.nc"
 
-Arguments:
---input_dir: Directory containing input NetCDF files.
---pattern (optional): Filename pattern to select files (default: _.nc).
+>>Run GEV analysis for multiple locations
+usage: GEVanalysis.py [-h] -input_dir INPUT_DIR [--pattern PATTERN] [--jobs JOBS] [-start_loc START_LOC] [-end_loc END_LOC]
+                      [-save_plots SAVE_PLOTS]
+
+options:
+  -h, --help              Show this help message and exit
+  -input_dir INPUT_DIR    Path to directory containing input files.
+  --pattern PATTERN       Filename pattern to match NetCDF files (default: '*.nc').
+  --jobs JOBS             Comma-separated string of jobs to execute. 
+                          Available jobs: `pooled`, `annual-stationary`, `regression`, `map`.
+  -start_loc START_LOC    Start location ID (inclusive) to process (default None).
+  -end_loc END_LOC        End location ID (inclusive) to process (default None).
+  -save_plots SAVE_PLOTS  Boolean whether to save figures/panels in output folder or not (time-consuming!)
+                          (default True).
+
 ```
 
 The script will then
