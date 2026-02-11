@@ -82,7 +82,7 @@ def prepare_combined_data(ls_files:list[str], dic_data_per_model:dict)->tuple[di
         da = dic_model['valid data']
         da_loc = sites_to_location(da).expand_dims(model=[model_name])
         da_list.append(da_loc)
-    combined = xr.concat(da_list, dim="model", join="outer")
+    combined = xr.concat(da_list, dim="model", join="outer", coords="different")
 
     return dic_data_per_model, combined, notes_overview
 

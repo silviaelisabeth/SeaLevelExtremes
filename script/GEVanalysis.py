@@ -137,14 +137,15 @@ def main(args):
         ls_jobs = list([job.strip() for job in args.jobs.split(',')])
     else:
         ls_jobs = ls_default
+    logger.info('Processing the following jobs %s', ls_jobs)
     
     save_plots = args.save_plots
     save_results = args.save_results
 
     # ---------------------------------------------------------------------------------------
-
     dic_notes_analysis = {}  
-    if 'pooled' in ls_jobs or 'map' in ls_jobs:
+    
+    if 'map' in ls_jobs:
         logger.info('Computing stationary and non-stationary GEV analysis with all (pooled) data...')
 
         ls_files = sorted(glob.glob(os.path.join(args.input_dir, args.pattern)))
@@ -152,31 +153,48 @@ def main(args):
             raise FileNotFoundError(f"No files found in {args.input_dir} matching {args.pattern}")
 
         dic_notes_analysis = {}
-        logger.info('Importing data...')
+        logger.info('Importing Data...')
         dic_data_per_model = dbf.import_all_models(ls_files)
         
-        logger.info('Pooling and preparing data...')
+        logger.info('Pooling and Preparing Data...')
         dic_data_per_model, combined, notes_overview = dbf.prepare_combined_data(ls_files, dic_data_per_model)
         dic_notes_analysis['data overview'] = notes_overview
         
-        logger.info('Rearranging data to sort per location...')    
+        logger.info('Rearranging Data – sorting per location...')
         dic_data_per_location = dbf.extract_location_data(combined, hindcast_start, hindcast_end)
         
-        if 'map' in ls_jobs:
-            logger.info(
-                'Creating map of locations with missing data with saving selected as %s '
-                '(if preferred otherwise, update save_plots)...',
-                save_plots
-            )
-            n_obs_per_location = dbf.get_number_of_observations_per_site(dic_data_per_location)
+        logger.info(
+            'Creating map of locations with missing data with saving selected as %s '
+            '(if preferred otherwise, update save_plots)...',
+            save_plots
+        )
+        n_obs_per_location = dbf.get_number_of_observations_per_site(dic_data_per_location)
 
-            missing_locations = dbf.create_summary_location_w_missing_data(
-                dic_data_per_model=dic_data_per_model,
-                combined=combined, n_obs_per_location=n_obs_per_location, 
-                dir_export=os.path.join(path_export, 'exploration') if save_plots is True else None
-            )
-            dic_notes_analysis['data pooling'] = [f"{len(missing_locations)} locations without any valid data found!"]
+        missing_locations = dbf.create_summary_location_w_missing_data(
+            dic_data_per_model=dic_data_per_model,
+            combined=combined, n_obs_per_location=n_obs_per_location, 
+            dir_export=os.path.join(path_export, 'exploration') if save_plots is True else None
+        )
+        dic_notes_analysis['data pooling'] = [f"{len(missing_locations)} locations without any valid data found!"]
+    
+    if 'pooled' in ls_jobs:
+        logger.info('Computing stationary and non-stationary GEV analysis with all (pooled) data...')
 
+        ls_files = sorted(glob.glob(os.path.join(args.input_dir, args.pattern)))
+        if not ls_files:
+            raise FileNotFoundError(f"No files found in {args.input_dir} matching {args.pattern}")
+
+        dic_notes_analysis = {}
+        logger.info('Importing Data...')
+        dic_data_per_model = dbf.import_all_models(ls_files)
+        
+        logger.info('Pooling and Preparing Data...')
+        dic_data_per_model, combined, notes_overview = dbf.prepare_combined_data(ls_files, dic_data_per_model)
+        dic_notes_analysis['data overview'] = notes_overview
+        
+        logger.info('Rearranging Data – sorting per location...')    
+        dic_data_per_location = dbf.extract_location_data(combined, hindcast_start, hindcast_end)
+        
         if args.start_loc is not None or args.end_loc is not None: 
             start_loc = args.start_loc if args.start_loc is not None else min(dic_data_per_location.keys()) 
             end_loc = args.end_loc if args.end_loc is not None else max(dic_data_per_location.keys())
@@ -319,12 +337,11 @@ def main(args):
             results=results, path_export=path_import, save_regression=save_results, save_figures=save_plots
             )
 
-
     logger.info('All analyses done; next store output...')
     ut.store_analysis_notes(dic_notes_analysis, path_export + 'gev_analysis/pooled/')
 
     # ---------------------------------------------------------------------------------------
-    logger.info(f"Analysis completed. Log saved at {log_path}")
+    logger.info('Analysis completed. Log saved at %s', log_path)
 
     logger.removeHandler(fh)
     fh.close()
