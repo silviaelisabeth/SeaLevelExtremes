@@ -40,7 +40,6 @@ def create_map_location_missing_valid_data(
     color_valid:str='#7BAA80FF',
     dir_export:str='../output/exploration',
     store_map:bool=False,
-    display_map:bool=False
     ) -> None:
 
     missing_locations['info'] = "Missing data"
@@ -63,7 +62,7 @@ def create_map_location_missing_valid_data(
     deck = pdk.Deck(
         layers=[layer_valid, layer_missing], initial_view_state=view_state,
         map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-        tooltip={"text": "Lat: {lat}\nLon: {lon}\nInfo: {info}"}
+        tooltip={"text": "Lat: {lat:.5f}\nLon: {lon:.5f}\nInfo: {info}"}
     )
 
     if store_map:
@@ -71,10 +70,9 @@ def create_map_location_missing_valid_data(
         save_dir.mkdir(parents=True, exist_ok=True) 
         file_name = save_dir / f"map_missingValidData_{round(radius_marker_m/1000,1)}kmRadius.html"
         deck.to_html(file_name, notebook_display=False, open_browser=False)
-    if display_map:
-        display(deck)
-
-    logger.info(f"Map saved as {file_name}. You can open it in your browser and interact with it.")
+        logger.info(f"Map saved as {file_name}. You can open it in your browser and interact with it.")
+    
+    return deck    
 
 
 def plot_gev_mu_trend(

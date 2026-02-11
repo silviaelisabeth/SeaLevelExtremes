@@ -140,7 +140,7 @@ def main(args):
     
     save_plots = args.save_plots
     save_results = args.save_results
-    
+
     # ---------------------------------------------------------------------------------------
 
     dic_notes_analysis = {}  
@@ -274,6 +274,7 @@ def main(args):
             logger.info(f'Skipping to save fit results...')
             
     if 'regression' in ls_jobs:
+
         logger.info(
             'Compute regression for location parameter using non-stationary and annual stationary GEV approach...'
             )
@@ -308,9 +309,9 @@ def main(args):
             f"WLS Regression for done; now computing regression and saving results ({save_results}) and "
             f"figures ({save_plots}) as defined)..."
             )
-        #ut.plot_and_save_regression_analysis(
-        #    results=results, path_export=path_import, save_regression=save_results, save_figures=save_plots
-        #    )
+        ut.plot_and_save_regression_analysis(
+            results=results, path_export=path_import, save_regression=save_results, save_figures=save_plots
+            )
 
 
     logger.info('All analyses done; next store output...')
@@ -358,11 +359,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "-no-save_results", dest='save_results', action='store_false', help="Do not save fit results"
     )
-    parser.set_defaults(save_results=True)  # default can be True  
+    parser.set_defaults(save_results=True)  
         
     parser.add_argument(
-    "-save_plots", action='store_true', help="Save figures (default False)"
-)
+        "-save_plots", action='store_true', help="Save figures (default False)"
+    )
     parser.add_argument(
         "-no-save_plots", dest='save_plots', action='store_false', help="Do not save figures"
     )

@@ -545,12 +545,14 @@ def plot_and_save_regression_analysis(
     colors_reg:list=['#333333FF', '#C88D35FF'], color_marker:str='#99E3DDFF'
     ) -> None:
     key_ex = list(results.keys())[0]
-    for col_label in ('year', 'sim_year'):
-        if col_label in results[key_ex]['data'].columns:
-            break
-    else:
-        raise ValueError(f'No year found in data table: {results[key_ex]['data'].columns}')
-    
+    column_label = None
+    for col_label in results[key_ex]['data'].columns:
+        if col_label in ('sim_year', 'year'):
+            column_label = col_label
+        
+    if column_label is None:
+        raise ValueError('No year found in data table')
+
     for site_id, dic_location in results.items():
         wls_delta = dic_location['wls_delta']
         lat_loc = dic_location['data']['lat'].unique()[0]
@@ -580,7 +582,7 @@ def plot_and_save_regression_analysis(
                 year_mean=dic_location['year_mean'],
                 y_pred=dic_location['y_pred'],
                 wls_delta=wls_delta,
-                nonstat_years=dic_location['data'][col_label].values.astype(int), 
+                nonstat_years=dic_location['data'][column_label].values.astype(int), 
                 nonstat=dic_location['fit results']['gev_nonstationary'],
                 display_results=display_results,
                 colors_reg=colors_reg,
