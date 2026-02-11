@@ -42,7 +42,7 @@ def create_map_location_missing_valid_data(
     store_map:bool=False,
     ) -> None:
 
-    missing_locations['info'] = "Missing data"
+    missing_locations['info'] = "Missing data (n_obs = 0)"
 
     layer_missing = pdk.Layer(
         "ScatterplotLayer", data=missing_locations, get_position='[lon, lat]', get_radius=radius_marker_m,
