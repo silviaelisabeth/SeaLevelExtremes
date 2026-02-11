@@ -159,21 +159,24 @@ def main(args):
         dic_data_per_model, combined, notes_overview = dbf.prepare_combined_data(ls_files, dic_data_per_model)
         dic_notes_analysis['data overview'] = notes_overview
         
+        logger.info('Rearranging data to sort per location...')    
+        dic_data_per_location = dbf.extract_location_data(combined, hindcast_start, hindcast_end)
+        
         if 'map' in ls_jobs:
             logger.info(
-                f'Creating map of locations with missing data with saving selected as {save_plots} '
-                '(if preferred otherwise, update save_plots)...'
-                )
+                'Creating map of locations with missing data with saving selected as %s '
+                '(if preferred otherwise, update save_plots)...',
+                save_plots
+            )
+            n_obs_per_location = dbf.get_number_of_observations_per_site(dic_data_per_location)
+
             missing_locations = dbf.create_summary_location_w_missing_data(
                 dic_data_per_model=dic_data_per_model,
-                combined=combined,
+                combined=combined, n_obs_per_location=n_obs_per_location, 
                 dir_export=os.path.join(path_export, 'exploration') if save_plots is True else None
             )
             dic_notes_analysis['data pooling'] = [f"{len(missing_locations)} locations without any valid data found!"]
 
-        logger.info('Rearranging data to sort per location...')    
-        dic_data_per_location = dbf.extract_location_data(combined, hindcast_start, hindcast_end)
-        
         if args.start_loc is not None or args.end_loc is not None: 
             start_loc = args.start_loc if args.start_loc is not None else min(dic_data_per_location.keys()) 
             end_loc = args.end_loc if args.end_loc is not None else max(dic_data_per_location.keys())
@@ -182,10 +185,10 @@ def main(args):
                 start_loc=start_loc,
                 end_loc=end_loc
                 )
-            logger.info(f"Processing locations {start_loc} to {end_loc} ({len(dic_data_per_location)} total)")
+            logger.info('Processing locations %s to %s (%s total)', start_loc, end_loc, len(dic_data_per_location))
 
         else:
-            logger.info(f"Processing all {len(dic_data_per_location)} locations")
+            logger.info('Processing all %s locations', len(dic_data_per_location))
         
         logger.info('Precomputing location labels...')
         location_labels = dbf.precompute_location_labels(dic_data_per_location)
@@ -199,7 +202,7 @@ def main(args):
         today_ = str(datetime.today().date().isoformat())   
         path_child_folder = Path(path_export) / "gev_analysis" / "pooled" / f"{today_}"
         if save_results:
-            logger.info('Saving fit results per locaiton...')
+            logger.info('Saving fit results per location...')
             ut.save_pooled_results(results=results, data=output['data'], base_dir=path_child_folder)
         else:
             logger.info('Skip saving fit results...')
@@ -208,7 +211,8 @@ def main(args):
         fig_dir.mkdir(parents=True, exist_ok=True)
 
         if save_plots is True:
-            logger.info(f'Preparing to save figures per location...')
+            logger.info('Preparing to save figures per location...')
+            
             for loc_id, result in results.items():
                 fig = dbplt.plot_pooled_analysis(
                     result=result, 
@@ -239,9 +243,10 @@ def main(args):
             
         except NameError:
             path_import = os.path.join(args.input_dir)
-            logger.info(f'Import data from folder {path_import}...')
+            logger.info('Import data from folder %s...', path_import)
+            
             results = ut.load_pooled_results(path_import)
-            logger.info(f'Imported {len(results)} locations')
+            logger.info('Imported %s locations', len(results))
 
         if args.start_loc is not None or args.end_loc is not None: 
             start_loc = args.start_loc if args.start_loc is not None else min(dic_data_per_location.keys()) 
@@ -251,10 +256,10 @@ def main(args):
                 start_loc=start_loc,
                 end_loc=end_loc
                 )
-            logger.info(f"Processing locations {start_loc} to {end_loc} ({len(results)} total)")
+            logger.info('Processing locations %s to %s (%s total)', start_loc, end_loc, len(results))
         
         else:
-            logger.info(f"Processing all {len(results)} locations")
+            logger.info('Processing all %s locations', len(results))
         
         logger.info(f'Run annual stationary GEV analysis...')
         results_extended, ls_notes_analysis = run_annual_gev(results)
@@ -269,9 +274,9 @@ def main(args):
                     },
                 base_dir=path_import
             )
-            logger.info(f'Results successfully added/stored in fit results.pkl {path_import}.')
+            logger.info('Results successfully added/stored in fit results.pkl %s.', path_import)
         else:
-            logger.info(f'Skipping to save fit results...')
+            logger.info('Skipping to save fit results...')
             
     if 'regression' in ls_jobs:
 
@@ -286,7 +291,8 @@ def main(args):
         except NameError:
             path_import = os.path.join(args.input_dir)
             logger.info(
-                f'Import fit results for annual stationary and non-stationary GEV analysis from folder {path_import}...'
+                'Import fit results for annual stationary and non-stationary GEV analysis from folder %s...', 
+                path_import
                 )
             results = ut.load_fit_results(path_import)
     
@@ -298,16 +304,16 @@ def main(args):
                 start_loc=start_loc,
                 end_loc=end_loc
                 )
-            logger.info(f"Processing locations {start_loc} to {end_loc} ({len(results)} total)")
+            logger.info('Processing locations %s to %s (%s total)', start_loc, end_loc, len(results))
 
         else:
-            logger.info(f"Processing all {len(results)} locations")
+            logger.info('Processing all %s locations', len(results))
 
         results = run_weighted_least_square_regression(results)
         
         logger.info(
-            f"WLS Regression for done; now computing regression and saving results ({save_results}) and "
-            f"figures ({save_plots}) as defined)..."
+            'WLS Regression for done; now computing regression and saving results (%s) and figures (%s) as defined)...',
+            save_results, save_plots
             )
         ut.plot_and_save_regression_analysis(
             results=results, path_export=path_import, save_regression=save_results, save_figures=save_plots
