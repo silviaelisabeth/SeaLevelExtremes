@@ -37,8 +37,9 @@ You can view the interactive map of all locations [here](https://drive.google.co
   - Parallelized workflow using `joblib` for efficient processing of thousands of locations.
 
 - **Annual extreme value statistics**
-  - Computes per-year GEV statistics for stationary and non-stationary fits.
-  - Weighted least squares regression to assess temporal trends.
+  - Computes non-stationary and stationary GEV statistics for pooled dataset and annaul stationary GEV fits.
+  - Weighted least squares regression to assess temporal trends including uncertainty estiamtes using delta method.
+  - Shape and scale parameters are kept cosntant (from pooled analysis).
 
 - **Visualization and reporting**
   - Plots μ-trends (location parameter) over time for each site.
@@ -86,9 +87,22 @@ You can run the analysis from a terminal or an IDE like PyCharm:
 ```zsh
 python3 GEVanalysis.py --input_dir "/path/to/netcdf/files" --pattern "_.nc"
 
-Arguments:
---input_dir: Directory containing input NetCDF files.
---pattern (optional): Filename pattern to select files (default: _.nc).
+>>Run GEV analysis for multiple locations
+usage: GEVanalysis.py [-h] -input_dir INPUT_DIR [--pattern PATTERN] [--jobs JOBS] [-start_loc START_LOC] [-end_loc END_LOC]
+                      [-save_plots SAVE_PLOTS] [-save_results SAVE_RESULTS]
+
+options:
+  -h, --help                    Show this help message and exit
+  -input_dir INPUT_DIR          Path to directory containing input files.
+  --pattern PATTERN             Filename pattern to match NetCDF files (default: '*.nc').
+  --jobs JOBS                   Comma-separated string of jobs to execute. 
+                                Available jobs: `pooled`, `annual-stationary`, `regression`, `map`.
+  -start_loc START_LOC          Start location ID (inclusive) to process (default None).
+  -end_loc END_LOC              End location ID (inclusive) to process (default None).
+  -save_plots SAVE_PLOTS        Boolean whether to save figures in output folder or not (time-consuming!)
+                                (default True).
+  --save_results SAVE_RESULTS   Boolean whether to save fit results in output folder or not
+                                (default True).
 ```
 
 The script will then
