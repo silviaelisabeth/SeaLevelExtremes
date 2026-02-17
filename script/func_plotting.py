@@ -614,7 +614,7 @@ def plot_pooled_analysis(
     skip_non_stat = plot_annual_max_with_trends(
         annual_max=annual_max, return_levels=result['return_levels'], nonstat=nonstat, comp=comp, fontsize=fontsize, 
         ls_periods=periods_evolution, colors_trends=colors_trends, axes_color=axes_color, color_markers=color_markers, 
-        linestyle_trends=linestyle_trends, ms=6, ax=ax_top_left, 
+        linestyle_trends=linestyle_trends, ms=6, ax=ax_top_left, loc_id=site_id
         )
 
     # ----------------------------------------------------------------------------   

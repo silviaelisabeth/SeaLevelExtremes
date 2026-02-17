@@ -581,11 +581,11 @@ def convert_annual_return_levels_with_ci_into_dataframe(data: dict) -> DataFrame
     return DataFrame(rows).sort_values('Year').reset_index(drop=True).set_index('Year')
 
 
-def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, return_periods:list) -> dict:
+def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, return_periods:list, column_label_year:str) -> dict:
     dic_notes = {}
     for en, site_id in enumerate(results.keys()):
         ls_notes = []
-        grp_per_year = results[site_id]['data'].groupby('year')
+        grp_per_year = results[site_id]['data'].groupby(column_label_year)
         
         message = f"Conducting stationary GEV for siteID {site_id} (#{en+1} out of {len(results.keys())}) grouped per year..."
         logger.info(message)
@@ -596,7 +596,7 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
         en = 0
         for year, group in grp_per_year:
             en+=1
-            logger.info(f"\t...{int(year)} (#{en} out of {len(grp_per_year)} years)") 
+            logger.info('\t...%s (#%s out of %s years)', int(year), en, len(grp_per_year)) 
 
             data = (group
                     .sort_values('year')
@@ -621,7 +621,7 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
 
             results_stat_per_year_at_location[int(year)] = gev_stationary
             results_return_values_per_year[int(year)] = rl_stationary
-        logger.info("\nDone!\n") 
+        logger.info('\nDone!\n') 
 
         df_stat_gev_per_year = DataFrame.from_dict(results_stat_per_year_at_location).T
         results[site_id]['fit results']['gev_stationary']['analysis_per_year'] = df_stat_gev_per_year.dropna()
@@ -636,7 +636,7 @@ def execute_and_store_stat_gev_per_year(results: dict, store_results:bool, retur
                 file_path = results[site_id]['file location']
             file_name = os.path.join(file_path, f"statGEV_per_year.parquet")
             df_stat_gev_per_year.to_parquet(file_name)
-            logger.info(f'Output stored in {file_name}')
+            logger.info('Output stored in %s', file_name)
             
         dic_notes[site_id] = ls_notes       
     return results, dic_notes
