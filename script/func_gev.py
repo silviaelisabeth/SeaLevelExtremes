@@ -1203,6 +1203,38 @@ def _compute_fisher_info(data, c, loc, scale):
     return cov
 
 
+def _compute_fisher_info_generic(neg_loglik, params_hat):
+    """
+    Numerical Fisher Information via Hessian of negative log-likelihood.
+    Works for arbitrary number of parameters.
+    """
+    params_hat = array(params_hat, dtype=float)
+    n = len(params_hat)
+    eps = sqrt(finfo(float).eps)
+
+    hessian = zeros((n, n))
+
+    for i in range(n):
+        for j in range(n):
+            shift = zeros(n)
+            shift[i] += eps
+            shift[j] += eps
+
+            fpp = neg_loglik(params_hat + shift)
+            fpm = neg_loglik(params_hat + shift * array([1 if k != j else -1 for k in range(n)]))
+            fmp = neg_loglik(params_hat + shift * array([1 if k != i else -1 for k in range(n)]))
+            fmm = neg_loglik(params_hat - shift)
+
+            hessian[i, j] = (fpp - fpm - fmp + fmm) / (4 * eps**2)
+
+    try:
+        cov = linalg.inv(hessian)
+    except:
+        return None
+
+    return cov
+
+
 def fit_stationary_gev_incl_uncertainty(
     data: ndarray,
     year: Optional[int] = None,
@@ -1244,6 +1276,7 @@ def fit_stationary_gev_incl_uncertainty(
             if print_msg:
                 print(message)
             ls_notes.append(message)
+            
             cov = _compute_fisher_info(data, -result['shape'], result['location'], result['scale'])
             if print_msg:
                 print('\t\tHessian covariance computed: {cov}')
@@ -1403,11 +1436,15 @@ def fit_pooled_gev_with_uncertainty(
     if uncertainty == "fisher":
         ls_notes.append("Computing Fisher Information for non-stationary GEV...")
         try:
-            cov = _compute_fisher_info(data,-stationary['shape'], stationary['location'], stationary['scale'])
-            #cov = _compute_fisher_info(neg_loglik, params_hat)
+            cov = _compute_fisher_info_generic(neg_loglik, params_hat)
             if cov is not None and all(isfinite(cov)):
                 std_errors = sqrt(diag(cov))
-                nonstationary['params_std'] = std_errors
+                if all(isfinite(std_errors)):
+                    nonstationary['params_std'] = std_errors
+                else:
+                    ls_notes.append("Fisher Information failed (not all values computed), falling back to bootstrap")
+                    uncertainty = "bootstrap"
+                    B = 300
             else:
                 ls_notes.append("Fisher Information failed, falling back to bootstrap")
                 uncertainty = "bootstrap"
@@ -1415,7 +1452,7 @@ def fit_pooled_gev_with_uncertainty(
         except Exception as e:
             ls_notes.append(f"Fisher Information exception: {e}, falling back to bootstrap")
             uncertainty = "bootstrap"
-            B = 150
+            B = 300
     
     # ---- STEP 5.1: OPTIONAL Bootstrap ----
     if uncertainty == "bootstrap":
