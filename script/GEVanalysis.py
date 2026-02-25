@@ -75,10 +75,11 @@ def run_gev_parallel(dic_data_per_location:dict, location_labels, n_jobs=None)->
         n_jobs = max(1, mp.cpu_count() - 1)
 
     set_location_labels(location_labels)
-
-    out = Parallel(n_jobs=n_jobs, backend='loky', verbose=10)(
-    delayed(process_location)(item) for item in list(dic_data_per_location.items())
-    )
+    
+    with Parallel(n_jobs=-1) as parallel:
+        out = parallel(n_jobs=n_jobs, backend='loky', verbose=10)(
+        delayed(process_location)(item) for item in list(dic_data_per_location.items())
+        )
     
     all_data = []
     results = {}
@@ -115,10 +116,11 @@ def run_annual_gev(results:dict)->tuple[dict,list]:
 
 
 def run_weighted_least_square_regression(results: dict)->dict:
-    results_parallel = Parallel(n_jobs=-1)(
-    delayed(gev.weighted_least_square_regression_for_site_mp)(site_id, results[site_id])
-        for site_id in tqdm(list(results.keys()))
-    )
+    with Parallel(n_jobs=-1) as parallel:
+        results_parallel = parallel(n_jobs=-1)(
+        delayed(gev.weighted_least_square_regression_for_site_mp)(site_id, results[site_id])
+            for site_id in tqdm(list(results.keys()))
+        )
 
     for site_id, analysis_dict in results_parallel:
         results.setdefault(site_id, {}).update(analysis_dict)
@@ -204,7 +206,6 @@ def main(args):
                 end_loc=end_loc
                 )
             logger.info('Processing locations %s to %s (%s total)', start_loc, end_loc, len(dic_data_per_location))
-
         else:
             logger.info('Processing all %s locations', len(dic_data_per_location))
         
