@@ -1052,10 +1052,10 @@ def set_location_labels(labels):
     
 
 def mle_fitting(data, n, ls_notes):
-    c, loc, scale = stats.genextreme.fit(data)
+    c, location, scale = stats.genextreme.fit(data)
     shape = -c
 
-    logpdf = stats.genextreme.logpdf(data, c, loc, scale)
+    logpdf = stats.genextreme.logpdf(data, c, location, scale)
     if not all(isfinite(logpdf)):
         ls_notes.append("Non-finite log-likelihood (GEV support violation)")
     ll = sum(logpdf)
@@ -1073,7 +1073,7 @@ def mle_fitting(data, n, ls_notes):
 
     return {
         "shape": shape,
-        "location": loc*1000, # conversion to millimeter
+        "location": location,
         "scale": scale,
         "n_obs": n,
         "log_likelihood": ll,
@@ -1234,23 +1234,31 @@ def fit_stationary_gev_incl_uncertainty(
 
     try:
         # ---- MLE FIT ----
+        if print_msg:
+            print('Compute maximum likelihood estimation')
         result, ls_notes = mle_fitting(data, n, ls_notes)
 
         # ---- OPTIONAL Fisher Information ---- 
         if uncertainty == "fisher" :
-            ls_notes.append('Compute Fisher Information...')
+            message = 'Compute Fisher Information...'
+            if print_msg:
+                print(message)
+            ls_notes.append(message)
             cov = _compute_fisher_info(data, -result['shape'], result['location'], result['scale'])
-
+            if print_msg:
+                print('\t\tHessian covariance computed: {cov}')
+            
             if cov is not None and all(isfinite(cov)):
+                result.update({"cov": cov})
+                
                 std_errors = sqrt(diag(cov))
-
                 result.update({
                     "shape_std": std_errors[0],
                     "location_std": std_errors[1],
                     "scale_std": std_errors[2],
                 })
             else:
-                message = 'Failed to compute information, falling back to bootstrap (B=150)...'
+                message = f'Failed to compute information, falling back to bootstrap (B={B})...'
                 if print_msg:
                     print(message)
                 ls_notes.append(message)
@@ -1314,6 +1322,8 @@ def fit_pooled_gev_with_uncertainty(
     n = len(data)
     
     # ---- STEP 1: Get stationary ----
+    if print_msg:
+        print(f'\t\tCompute stationary GEV incl uncertainty using {uncertainty}')
     stationary, stat_notes = fit_stationary_gev_incl_uncertainty(data)
     ls_notes.extend(stat_notes)
     
@@ -1393,7 +1403,8 @@ def fit_pooled_gev_with_uncertainty(
     if uncertainty == "fisher":
         ls_notes.append("Computing Fisher Information for non-stationary GEV...")
         try:
-            cov = _compute_fisher_info(neg_loglik, params_hat)
+            cov = _compute_fisher_info(data,-stationary['shape'], stationary['location'], stationary['scale'])
+            #cov = _compute_fisher_info(neg_loglik, params_hat)
             if cov is not None and all(isfinite(cov)):
                 std_errors = sqrt(diag(cov))
                 nonstationary['params_std'] = std_errors
@@ -1443,6 +1454,18 @@ def likelihood_ratio_test(LL_s, LL_ns, df):
 
 
 def compare_stationary_nonstationary(stationary, nonstationary, data_loc):
+    """_summary_
+        μ (mu) → location parameter
+        σ (sigma) → scale parameter
+        ξ (xi) → shape parameter
+    Args:
+        stationary (_type_): _description_
+        nonstationary (_type_): _description_
+        data_loc (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     n = stationary['n_obs']
 
     # Stationary
@@ -1460,19 +1483,18 @@ def compare_stationary_nonstationary(stationary, nonstationary, data_loc):
     AIC_s = 2*k_s - 2*LL_s
     BIC_s = k_s*log(n) - 2*LL_s
 
-
     # Non-stationary (location trend)
-    mu0 = nonstationary['mu0_samples'].mean()
-    mu1 = nonstationary['mu1_samples'].mean()
-    sigma_ns = nonstationary['sigma_samples'].mean()
-    xi_ns = nonstationary['xi_samples'][3]
+    mu0 = nonstationary['params_hat'][0]
+    mu1 = nonstationary['params_hat'][1]
+    sigma_ns = nonstationary['params_hat'][2] 
+    xi_ns = nonstationary['params_hat'][3] 
 
     t_scaled = (data_loc.year - nonstationary['years_mean']) / nonstationary['years_std']  # scaled years
 
     mu_t = mu0 + mu1*t_scaled
     z_ns = (data_loc.annual_max - mu_t)/sigma_ns
     if abs(xi_ns) < 1e-10:
-        LL_ns = -sum(log(sigma_ns)) - sum(z_ns) - sum(exp(-z_ns))
+        LL_ns = -log(sigma_ns) - sum(z_ns) - sum(exp(-z_ns))
     else:
         term = 1 + xi_ns*z_ns
         LL_ns = -n * log(sigma_ns) - sum((1 + 1/xi_ns) * log(term)) - sum(term**(-1/xi_ns))
@@ -1484,7 +1506,7 @@ def compare_stationary_nonstationary(stationary, nonstationary, data_loc):
     # Likelihood ratio test
     df = k_ns - k_s
     delta_LL, p_value, interpretation = likelihood_ratio_test(LL_s=LL_s, LL_ns=LL_ns, df=df)
-    
+
     return dict({
             'stationary': {'LL': LL_s, 'k': k_s, 'AIC': AIC_s, 'BIC': BIC_s},
             'nonstationary': {'LL': LL_ns, 'k': k_ns, 'AIC': AIC_ns, 'BIC': BIC_ns},
@@ -1569,17 +1591,17 @@ def print_report(result, loc_ex):
 
     print('\nStationary GEV analysis')
     gev_stat = result['stationary']
-    print(f'shape:\t {gev_stat['shape']:.3f} ± {gev_stat['shape_std']:.3e}')
-    print(f'scale:\t {gev_stat['scale']:.3f} ± {gev_stat['scale_std']:.3e}')
-    print(f'µ:\t {gev_stat['location']:.2f} ± {gev_stat['location_std']:.2e}')
+    print(f'shape:\t\t{gev_stat['shape']:.3f} ± {gev_stat['shape_std']:.3e}')
+    print(f'scale, mm:\t{gev_stat['scale']*1000:.3f} ± {gev_stat['scale_std']*1000:.2e}')
+    print(f'µ, mm:\t\t{gev_stat['location']*1000:.2f} ± {gev_stat['location_std']*1000:.2e}')
 
 
     print('\nNON-Stationary GEV analysis')
     gev_nonstat = result['nonstationary']
-    print(f'shape:\t {gev_nonstat['params_hat'][3]:.3f} ± {gev_nonstat['xi_std']:.3e}')
-    print(f'scale:\t {gev_nonstat['params_hat'][2]:.3f} ± {gev_nonstat['sigma_std']:.3e}')
-    print(f'µ0:\t {gev_nonstat['params_hat'][0]:.2f} ± {gev_nonstat['mu0_std']:.2e}')
-    print(f'µ1:\t {gev_nonstat['params_hat'][1]:.2f} ± {gev_nonstat['mu1_std']:.2e}')
+    print(f'shape:\t\t{gev_nonstat['params_hat'][3]:.3f} ± {gev_nonstat['xi_std']:.3e}')
+    print(f'scale, mm:\t {gev_nonstat['params_hat'][2]*1000:.3f} ± {gev_nonstat['sigma_std']*1000:.2e}')
+    print(f'µ0, mm:\t\t{gev_nonstat['params_hat'][0]*1000:.2f} ± {gev_nonstat['mu0_std']*1000:.2e}')
+    print(f'µ1, mm/yr:\t {gev_nonstat['params_hat'][1]*1000:.3f} ± {gev_nonstat['mu1_std']*1000:.2e}')
 
     print('\nMODEL COMPARISON')
     print(result['model_comparison']['LRT']['interpretation'])
@@ -1674,4 +1696,57 @@ def process_location(
     return loc_id, result_dict, ls_notes
 
 
-
+def annual_stationary_trend(annual_df, factor_m_to_mm=1000):
+    """
+    Compute weighted linear trend of annual GEV location parameter (mu) with standardized years.
+    
+    Parameters:
+        annual_df : pd.DataFrame
+            Must contain columns ['year', 'location', 'n_obs']
+        factor_m_to_mm : float
+            Factor to multiply mu (default converts m -> mm)
+    
+    Returns:
+        dict with:
+            mu_trend : dict with mu0, mu1, mu0_se, mu1_se
+            mu_fit : np.array of fitted values (in mm)
+            mu_ci_upper, mu_ci_lower : np.array of 95% CI (in mm)
+            years_std : standardized years used
+    """
+    
+    x = annual_df['year'].values
+    y = annual_df['location'].values
+    weights = annual_df['n_obs'].values
+    
+    x_mean = mean(x)
+    x_std_val = std(x, ddof=1)
+    x_std = (x - x_mean) / x_std_val
+    
+    X = sm.add_constant(x_std)
+    
+    model = sm.WLS(y, X, weights=weights).fit()
+    
+    mu0_mm = model.params[0] * factor_m_to_mm
+    mu1_mm = model.params[1] * factor_m_to_mm
+    mu0_se_mm = model.bse[0] * factor_m_to_mm
+    mu1_se_mm = model.bse[1] * factor_m_to_mm
+    
+    mu_fit = mu0_mm + mu1_mm * x_std
+    
+    mu_ci_upper = mu_fit + 1.96 * mu1_se_mm * x_std
+    mu_ci_lower = mu_fit - 1.96 * mu1_se_mm * x_std
+    
+    return {
+        'mu_trend': {
+            'mu0': mu0_mm,
+            'mu1': mu1_mm,
+            'mu0_se': mu0_se_mm,
+            'mu1_se': mu1_se_mm
+        },
+        'mu_fit': mu_fit,
+        'mu_ci_upper': mu_ci_upper,
+        'mu_ci_lower': mu_ci_lower,
+        'years_std': x_std,
+        'x_mean': x_mean,
+        'x_std_val': x_std_val
+    }

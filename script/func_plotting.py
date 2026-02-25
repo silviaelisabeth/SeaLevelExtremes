@@ -685,7 +685,7 @@ def plot_annual_max_with_trends_v2(
 
     # --- Plot annual maxima ---
     ax.plot(
-        annual_max['year'], annual_max['annual_max']*1000, 'o', color=color_markers, markersize=ms, label='Annual max'
+        annual_max['year'], annual_max['annual_max'], 'o', color=color_markers, markersize=ms, label='Annual max'
     )
 
     # --- Plot stationary return levels ---
@@ -708,11 +708,11 @@ def plot_annual_max_with_trends_v2(
     for en, ix in enumerate(return_levels_nonstat.index):
         ax.fill_between(
             [annual_max['year'].min(), annual_max['year'].max()],
-            return_levels_nonstat.loc[ix, 'lower']*1000, return_levels_nonstat.loc[ix, 'upper']*1000, 
+            return_levels_nonstat.loc[ix, 'lower'], return_levels_nonstat.loc[ix, 'upper'], 
             color=colors_trends[1], alpha=0.15, label='95% CI (non-stationary μ)'
             )
         ax.axhline(
-            return_levels_nonstat.loc[ix, 'z_T']*1000, 
+            return_levels_nonstat.loc[ix, 'z_T'], 
             color=colors_trends[1], linestyle=linestyle_trends[en], lw=1.5,
             label=f'return period {return_levels_nonstat.loc[ix, 'return_period']} (non-stationary)'
             )
@@ -768,7 +768,7 @@ def create_parameter_summary_v2(
     
     if nonstat:
         info_text += "\n"r"NON-STATIONARY GEV" "\n"
-        info_text += f"  μ(t) = {nonstat['mu0_samples'].mean()*1000:.2f}(±{nonstat['mu0_samples'].std()*1000:.2e}) + {nonstat['mu1_samples'].mean()*1000:.2f}(±{nonstat['mu1_samples'].std()*1000:.2e})·t\n"
+        info_text += f"  μ(t) = {nonstat['mu0_samples'].mean():.2f}(±{nonstat['mu0_samples'].std():.2e}) + {nonstat['mu1_samples'].mean():.2f}(±{nonstat['mu1_samples'].std():.2e})·t\n"
         info_text += f"  σ = {nonstat['sigma_samples'].mean():.4f} ± {nonstat['sigma_samples'].std():.3e}\n"
         info_text += f"  ξ = {nonstat['xi_samples'].mean():.4f} ± {nonstat['xi_samples'].std():.3e}\n"
         info_text += f"  AIC: {comp['nonstationary']['AIC'].round(1)}\n"
@@ -808,7 +808,7 @@ def plot_level_evolution_v2(
     for i, t_eval in enumerate(ls_t_eval):
         rl_nonstat = return_level_nonstat[return_level_nonstat.t_eval == t_eval]
         ax.semilogx(
-            T_values, rl_nonstat['z_T'].values*1000, marker='o', ls=ls_linestyle[i], color=color_levels[1], 
+            T_values, rl_nonstat['z_T'].values, marker='o', ls=ls_linestyle[i], color=color_levels[1], 
             label=f'Non-stationary {t_eval}'
             )
 
