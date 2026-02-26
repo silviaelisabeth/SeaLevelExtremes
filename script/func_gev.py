@@ -16,6 +16,7 @@ import func_gev as gev
 import func_plotting as dbplt
 import func_preparation as dbf
 import func_utils as ut
+import numdifftools as nd
 import statsmodels.api as sm
 import xarray as xr
 from IPython.display import Markdown, display
@@ -23,7 +24,9 @@ from joblib import Parallel, delayed
 from numpy import (all, any, arange, array, asarray, diag, exp, finfo, float64,
                    full_like, generic, inf, isfinite, isnan, linalg, linspace,
                    log, max, mean, min, nan, ndarray, ones, ones_like,
-                   percentile, random, repeat, sqrt, std, sum, vstack, zeros)
+                   percentile, random, repeat, sqrt, std, sum, vstack, zeros,
+                   zeros_like)
+from numpy.linalg import inv
 from pandas import DataFrame, Series, concat, to_numeric
 from scipy import optimize, stats
 from scipy.optimize import approx_fprime, minimize
@@ -795,13 +798,13 @@ def analyze_per_location(
     data = annual_max['annual_max'].values
 
     logger.info("\tConducting stationary GEV...")
-    gev_stationary, warnings = fit_stationary_gev(data)
-    ls_notes.append(warnings)
+    gev_stationary, warnings_ = fit_stationary_gev(data)
+    ls_notes.append(warnings_)
     logger.info(f"\t → Stationary GEV done (success {gev_stationary != None})")
     
     logger.info("\tContinuing with non-stationary GEV...")
-    gev_nonstat_loc, warnings = fit_nonstationary_gev(years, data, 'location')
-    ls_notes.append(warnings)
+    gev_nonstat_loc, warnings_ = fit_nonstationary_gev(years, data, 'location')
+    ls_notes.append(warnings_)
     logger.info(f"\t → Non-stationary GEV done (success {gev_nonstat_loc != None})")
     
     comparison = compare_models(gev_stationary, gev_nonstat_loc)
@@ -1349,7 +1352,7 @@ def fit_pooled_gev_with_uncertainty(
     Optionally compute parameter uncertainty via Fisher or bootstrap.
     """
     if uncertainty is None:
-        uncertainty = "fisher"
+        uncertainty = "delta"
     
     ls_notes = []
     n = len(data)
@@ -1433,6 +1436,30 @@ def fit_pooled_gev_with_uncertainty(
         }
     
     # ---- STEP 5: Uncertainty Calculation for non-stationary case DEFAULT Fisher ----
+    if uncertainty == "delta":
+        ls_notes.append("Computing Delta Method for non-stationary GEV...")
+        hessian = nd.Hessian(neg_loglik)(params_hat)
+        print(hessian)
+        try:
+            cov_full = inv(hessian)
+            print(cov_full)
+            cov_mu = cov_full[:2, :2]  # µ0, µ1 sub-matrix
+        except:
+            cov_mu = None
+            ls_notes.append("Hessian inversion failed; Delta-method SD not computed.")
+
+        if cov_mu is not None:
+            def sd_mu(t_year):
+                t_std = (t_year - years.mean()) / years.std()
+                var_mu = cov_mu[0,0] + 2*t_std*cov_mu[0,1] + t_std**2*cov_mu[1,1]
+                return sqrt(var_mu) if var_mu > 0 else nan
+
+            nonstationary['delta_sd_mu'] = sd_mu
+            nonstationary['cov_mu'] = cov_mu
+        else:
+            ls_notes.append(f"Delta Method failed: {e}, falling back to Fisher Information")
+            uncertainty = "fisher"
+
     if uncertainty == "fisher":
         ls_notes.append("Computing Fisher Information for non-stationary GEV...")
         try:
@@ -1454,15 +1481,33 @@ def fit_pooled_gev_with_uncertainty(
             uncertainty = "bootstrap"
             B = 300
     
-    # ---- STEP 5.1: OPTIONAL Bootstrap ----
     if uncertainty == "bootstrap":
         ls_notes.append("Computing bootstrap uncertainty for non-stationary GEV...")
         if seed is not None:
             random.seed(seed)
         
-        mu0_samples, mu1_samples, sigma_samples, xi_samples = nonstationary_bootstrapping(
-            neg_loglik, params_hat=params_hat, t=t, n=n, B=B, trend_params='location'
-            )
+        mu0, mu1, sigma, xi = params_hat
+        t_std = (years - years.mean()) / years.std()
+        mu_t = mu0 + mu1 * t_std
+
+        residuals = data - mu_t
+
+        mu0_samples, mu1_samples, sigma_samples, xi_samples = [], [], [], []
+
+        for _ in range(B):
+            data_b = mu_t + random.choice(residuals, size=n, replace=True)
+            
+            # Re-fit using Nelder-Mead
+            res_b = minimize(neg_loglik, params_hat, method='Nelder-Mead')
+            p_b = res_b.x
+            mu0_samples.append(p_b[0])
+            mu1_samples.append(p_b[1])
+            sigma_samples.append(p_b[2])
+            xi_samples.append(p_b[3])
+    
+        #mu0_samples, mu1_samples, sigma_samples, xi_samples = nonstationary_bootstrapping(
+        #    neg_loglik, params_hat=params_hat, t=t, n=n, B=B, trend_params='location'
+        #    )
         
         nonstationary.update({
             'mu0_samples': array(mu0_samples),
@@ -1506,7 +1551,7 @@ def compare_stationary_nonstationary(stationary, nonstationary, data_loc):
     n = stationary['n_obs']
 
     # Stationary
-    mu_s = stationary['location']/1000
+    mu_s = stationary['location']
     sigma_s = stationary['scale']
     xi_s = stationary['shape']
 
@@ -1531,7 +1576,7 @@ def compare_stationary_nonstationary(stationary, nonstationary, data_loc):
     mu_t = mu0 + mu1*t_scaled
     z_ns = (data_loc.annual_max - mu_t)/sigma_ns
     if abs(xi_ns) < 1e-10:
-        LL_ns = -log(sigma_ns) - sum(z_ns) - sum(exp(-z_ns))
+        LL_ns = -sum(log(sigma_ns)) - sum(z_ns) - sum(exp(-z_ns))
     else:
         term = 1 + xi_ns*z_ns
         LL_ns = -n * log(sigma_ns) - sum((1 + 1/xi_ns) * log(term)) - sum(term**(-1/xi_ns))
@@ -1554,7 +1599,7 @@ def compare_stationary_nonstationary(stationary, nonstationary, data_loc):
 def compute_return_levels_for_year(stationary, nonstationary, T, t_eval):
     t_eval = asarray(t_eval)
     
-    #  stationary 
+    #  stationary
     mu = stationary['location']
     sd_mu = stationary['location_std']
     scale = stationary['scale']
@@ -1570,17 +1615,27 @@ def compute_return_levels_for_year(stationary, nonstationary, T, t_eval):
     years_mean = nonstationary['years_mean']
     years_std = nonstationary['years_std']
     
+    mu0, mu1, sigma, xi = params_hat
     t_scaled_eval = (t_eval - years_mean) / years_std
     
-    mu_t = nonstationary['mu0_samples'].mean() + nonstationary['mu1_samples'].mean()*t_scaled_eval
-    #mu_t = params_hat[0] + params_hat[1]*t_scaled_eval
-    mu_samples_eval = nonstationary['mu0_samples'][:, None] + nonstationary['mu1_samples'][:, None]*t_scaled_eval
+    #mu_t = nonstationary['mu0_samples'].mean() + nonstationary['mu1_samples'].mean()*t_scaled_eval
+    mu_t = mu0 + mu1*t_scaled_eval
+    #mu_samples_eval = nonstationary['mu0_samples'][:, None] + nonstationary['mu1_samples'][:, None]*t_scaled_eval
     
-    sd_mu_t = std(mu_samples_eval, axis=0, ddof=1)
-    factor_ns = (-log(1 - 1/T))**(-params_hat[3]) - 1
-    z_T_ns = mu_t + params_hat[2]/params_hat[3] * factor_ns
-    z_lower_ns = z_T_ns - 1.96*sd_mu_t
-    z_upper_ns = z_T_ns + 1.96*sd_mu_t
+    if 'delta_sd_mu' in nonstationary:
+        sd_mu_t = array([nonstationary['delta_sd_mu'](year) for year in t_eval])
+    else:
+        sd_mu_t = zeros_like(mu_t)  # fallback if Delta-method not available
+
+    if abs(xi) < 1e-10:
+        factor_ns = -log(-log(1 - 1/T))
+        z_T_ns = mu_t + sigma * factor_ns
+    else:
+        factor_ns = (-log(1 - 1/T))**(-xi) - 1
+        z_T_ns = mu_t + sigma/xi * factor_ns
+
+    z_lower_ns = z_T_ns - 1.96 * sd_mu_t
+    z_upper_ns = z_T_ns + 1.96 * sd_mu_t
     
     return dict({
         'stationary': {'z_T': z_T, 'lower': z_lower, 'upper': z_upper},
@@ -1673,7 +1728,7 @@ def fit_all_years_stationary(df_prepared, uncertainty='fisher', seed=None):
     return results_per_year
 
 
-def process_location(
+def process_gev_per_location(
     loc_id, df, trend_params='location', return_periods=[10,20,50,100], t_eval=None, uncertainty='fisher', B=50, 
     seed=None, print_msg=False
     ) -> tuple[str, dict, list]:
