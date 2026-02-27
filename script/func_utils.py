@@ -7,12 +7,11 @@ from datetime import datetime
 from glob import glob
 from logging import FileHandler, Logger
 from pathlib import Path
-from typing import Optional, Union
+from typing import Union
 
 import arabic_reshaper
 import func_plotting as dbplt
 from bidi.algorithm import get_display
-from bs4 import BeautifulSoup
 from joblib import Parallel, delayed
 from numpy import isnan, unique
 from pandas import DataFrame, concat, read_parquet
@@ -21,11 +20,19 @@ logger = logging.getLogger("gev_analysis")
 
 
 def initialize_logger_v1(log_filename:str, log_dir:str="../logs"):
+    """_summary_
+
+    Args:
+        log_filename (str): _description_
+        log_dir (str, optional): _description_. Defaults to "../logs".
+
+    Returns:
+        _type_: _description_
+    """
     os.makedirs(log_dir, exist_ok=True)
 
     log_path = os.path.join(log_dir, log_filename)
 
-    logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
     if logger.hasHandlers():
@@ -43,7 +50,7 @@ def initialize_logger_v1(log_filename:str, log_dir:str="../logs"):
 
     class PrintLogger:
         def write(self, msg):
-            if msg.strip(): 
+            if msg.strip():
                 logger.info(msg.rstrip())
         def flush(self):
             pass
@@ -61,7 +68,6 @@ def initialize_logger_v2(dir_logs:str, log_name:str=None)->tuple[Logger,FileHand
     if log_name is None:
         log_name = f"LOGS_GEVAnalysis_{datetime.now():%Y%m%d_%H%M%S}.log"
     log_path = os.path.join(dir_logs, log_name)
-    logger = logging.getLogger('gev_analysis')
     logger.setLevel(logging.INFO)
     fh = logging.FileHandler(log_path)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -109,13 +115,13 @@ def prepare_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> Data
     data_hindcast = data[mask].copy()
 
     logger.info(
-        f"\nData Summary:"
-        f"\n\tHindcast period: {hindcast_start}-{hindcast_end}"
-        f"\n\tTotal observations: {len(data_hindcast):,}"
-        f"\n\tModels: {data_hindcast['model'].nunique()}"
-        f"\n\tLocations: {min(data_hindcast[['lon', 'lat']].nunique().values)}"
+        '\nData Summary:'
+        f'\n\tHindcast period: {hindcast_start}-{hindcast_end}'
+        f'\n\tTotal observations: {len(data_hindcast):,}'
+        f'\n\tModels: {data_hindcast['model'].nunique()}'
+        f'\n\tLocations: {min(data_hindcast[['lon', 'lat']].nunique().values)}'
         )
-    
+
     return data_hindcast
 
 
@@ -135,39 +141,39 @@ def prepare_pooled_data_per_location(
             \t  Available Models at Location: {len(data_hindcast.model.unique())}
             \t  Observations for analyse: {len(data_hindcast)}
             """.strip()
-    
+
     return data_hindcast, message
 
 
 def prepare_pooled_data(dic_data: dict, hindcast_start:int, hindcast_end: int) -> tuple[dict, str]:
-        """Calculate target years and filter to hindcast period."""
-        dic_data_hindcast = {}
-        for loc_id, data in dic_data.items():
-            mask = (data['sim_year'] >= hindcast_start) & (data['sim_year'] <= hindcast_end)
-            dic_data_hindcast[loc_id] = data[mask].copy()
+    """Calculate target years and filter to hindcast period."""
+    dic_data_hindcast = {}
+    for loc_id, data in dic_data.items():
+        mask = (data['sim_year'] >= hindcast_start) & (data['sim_year'] <= hindcast_end)
+        dic_data_hindcast[loc_id] = data[mask].copy()
 
-        # -----------------------------------------------------------------
-        ls_nmodels = [len(v.model.unique()) for v in dic_data_hindcast.values()]
-        
-        message = f"""
-                \nData Summary
-                \t  Hindcast period: {hindcast_start}-{hindcast_end}
-                \t  Available Models per Location: {min(ls_nmodels)}-{max(ls_nmodels)}
-                \t  Locations to analyse: {len(dic_data_hindcast.keys())}
-                """.strip()
-        logger.info(message)
-        
-        return dic_data_hindcast, message
+    # -----------------------------------------------------------------
+    ls_nmodels = [len(v.model.unique()) for v in dic_data_hindcast.values()]
+
+    message = f"""
+            \nData Summary
+            \t  Hindcast period: {hindcast_start}-{hindcast_end}
+            \t  Available Models per Location: {min(ls_nmodels)}-{max(ls_nmodels)}
+            \t  Locations to analyse: {len(dic_data_hindcast.keys())}
+            """.strip()
+    logger.info(message)
+
+    return dic_data_hindcast, message
 
 
 def get_dataset_overview_for_model_at_location(
-    dic_data: dict, model_label:Optional[str] = None, model_nr:Optional[int] = None,
-    site_id: Optional[float] = None, lon:Optional[float] = None, lat:Optional[float] = None
+    dic_data: dict, model_label:str | None = None, model_nr:int | None = None,
+    site_id: float | None = None, lon:float | None = None, lat:float | None = None
     ) -> tuple[DataFrame, float, float]:
     if all(param is not None for param in (model_label, site_id)):
         data_for_model = dic_data[model_label]['valid data']
         data_for_model_at_location = DataFrame(
-            data_for_model[:, :, site_id], 
+            data_for_model[:, :, site_id],
             columns=['member0', 'member1'],
             index=data_for_model[:, :, site_id].sim_year.astype(int)
             )
@@ -208,16 +214,25 @@ def create_data_overview(dic_data_per_model:dict,ls_files:list[str]) -> list:
         unique_years = unique(years[~isnan(years)].astype(int))
         dic_sim_years_per_model[model_label] = unique_years
         data_shape = dic_data_per_model[model_label]['valid data'].shape
-        
+
         ls_num_samples.append(data_shape[0])
         message = f"{model_label} · {data_shape}"
         ls_notes.append(message)
         logger.info(message)
-        
-    sites_valid = [dic_data_per_model[model_label]['preparation info'][0] for model_label in dic_data_per_model.keys()]
-    unique_years_per_model = [len(dic_sim_years_per_model[model_label]) for model_label in dic_sim_years_per_model.keys()]
-    sim_year_per_model_min = [min(dic_sim_years_per_model[model_label]) for model_label in dic_sim_years_per_model.keys()]
-    sim_year_per_model_max = [max(dic_sim_years_per_model[model_label]) for model_label in dic_sim_years_per_model.keys()]
+
+    sites_valid = [
+        dic_data_per_model[model_label]['preparation info'][0] 
+        for model_label in dic_data_per_model.keys()
+        ]
+    unique_years_per_model = [
+        len(dic_sim_years_per_model[model_label]) for model_label in dic_sim_years_per_model.keys()
+        ]
+    sim_year_per_model_min = [
+        min(dic_sim_years_per_model[model_label]) for model_label in dic_sim_years_per_model.keys()
+        ]
+    sim_year_per_model_max = [
+        max(dic_sim_years_per_model[model_label]) for model_label in dic_sim_years_per_model.keys()
+        ]
 
     message = f"""
         Overall, data is available from
@@ -254,7 +269,7 @@ def save_location_results(
         location_id=location_id, result_location=result_location, base_dir=base_dir
         )
     
-    logger.info('export path:', loc_dir)
+    logger.info('export path: %s', loc_dir)
     _ = dbplt.plot_pooled_analysis(
         result=result_location, 
         site_id=location_id, 
@@ -357,7 +372,7 @@ def load_pooled_results(base_dir: Union[str, Path]) -> dict[int, dict[str, any]]
     return results
 
 
-def load_fit_results(base_dir: Union[str, Path], wls_file: Optional[str]=None) -> dict[int, dict[str, any]]:
+def load_fit_results(base_dir: Union[str, Path], wls_file: str | None=None) -> dict[int, dict[str, any]]:
     """
     Load pooled results stored in artifact-centric format:
       - DataFrames: *.parquet (with location_id column)
@@ -600,3 +615,26 @@ def plot_and_save_regression_analysis(
             file_name = f"location_{str(site_id)}_{lat}_{lon}_GEVTrendAnalysis.png"
             
             fig.savefig(save_dir / "figures" / file_name, dpi=300, bbox_inches='tight')
+
+
+def store_annual_stat_results(results_annual_stat, path_child_folder):
+    os.makedirs(path_child_folder, exist_ok=True)
+
+    filename = path_child_folder / 'stationary_per_year.pkl'
+    with open(filename, "wb") as f:
+        pickle.dump(results_annual_stat, f)
+
+    print(f"Output stored in {filename}")
+    
+
+def store_location_regression(fig, loc_id, LatLon, location_info, path_child_folder):
+    os.makedirs(path_child_folder/'figures', exist_ok=True)
+
+    lat = str(LatLon[0].round(3))
+    lon = str(LatLon[1].round(3))
+    country = location_info.split(' ')[-1].strip()
+        
+    filename = path_child_folder / f'figures/location_{loc_id}_{country}_{lat}_{lon}_TrendAnalysisLocationParameter.png'
+    fig.savefig(filename, dpi=150, bbox_inches="tight")
+
+    print(f"Regression analysis for location parameter stored as {filename}")

@@ -1,6 +1,7 @@
 import logging
 import os
 import random
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -316,8 +317,9 @@ def create_summary_location_w_missing_data(
     if dir_export:
         save_dir = Path(dir_export)
         save_dir.mkdir(parents=True, exist_ok=True) 
-    
-        file_name = save_dir / 'missing_locations_summary.txt'
+
+        time_date = datetime.today().date().isoformat()
+        file_name = save_dir / 'missing_locations_summary_{time_date}.txt'
         df_missing_location.to_csv(file_name, sep='\t', index=False)
         logger.info(f"Overview of location with missing data saved as {file_name}.")
 
