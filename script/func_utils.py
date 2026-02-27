@@ -638,3 +638,18 @@ def store_location_regression(fig, loc_id, LatLon, location_info, path_child_fol
     fig.savefig(filename, dpi=150, bbox_inches="tight")
 
     print(f"Regression analysis for location parameter stored as {filename}")
+
+
+def import_info_for_regression(dir_import):
+    with open(dir_import + '/stationary_per_year.pkl', "rb") as f:
+        results_annual_stat_all = pickle.load(f)
+        
+    with open(dir_import + '/nonstationary.pkl', "rb") as f:
+        results_nonstat_all = pickle.load(f)
+        
+    with open(dir_import + '/LatLon.pkl', "rb") as f:
+        location_geo_info = pickle.load(f)
+        
+    with open(dir_import + '/location_info.pkl', "rb") as f:
+        location_point_info = pickle.load(f)
+    return results_annual_stat_all, results_nonstat_all, location_geo_info, location_point_info

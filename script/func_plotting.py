@@ -1038,9 +1038,8 @@ def plot_pooled_analysis_v2(
     
     return fig
 
-
 def plot_location_regression(
-    loc_id, years_, dic_trend, results_per_location, 
+    loc_id, years_, dic_trend, results_annual_stat_location, 
     axes_color: str = '#333333',
     markers_color: str = "#99E3DDFF",
     colors_reg: list = ['#CAA5C2FF',  '#005C55FF'],
@@ -1053,8 +1052,6 @@ def plot_location_regression(
     fig, ax = plt.subplots(figsize=(13, 4))
 
     # annual-stationary GEV results
-    results_annual_stat_location = results_per_location['annual_stationary']
-
     ax.scatter(
         x_ans, y_ans, s=weights_ans*2.5, marker='o', color=markers_color, alpha=0.75, 
         label='fit result annual stationary GEV (size ~ n_obs)'
@@ -1107,4 +1104,4 @@ def plot_location_regression(
     ax.set_ylabel('GEV location parameter μ, mm', fontsize=fontsize)
     plt.tight_layout()
 
-    return fig  
+    return fig

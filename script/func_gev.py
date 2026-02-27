@@ -2031,30 +2031,25 @@ def annual_stationary_trend(annual_df, factor_m_to_mm=1000):
 
 
 def prepare_for_regression(
-    results_per_location, years_mean, years_std, hindcast_start, hindcast_end, z_percentile, factor_m_to_mm
+    annual_stationary, nonstationary, years_mean, years_std, hindcast_start, hindcast_end, z_percentile, factor_m_to_mm
     ):
     
     years_ = arange(hindcast_start, hindcast_end+1)
     years_autoscaled = (years_ - years_mean) / years_std
 
-    results_annual_stat_location = results_per_location['annual_stationary']
-    x_ans = results_annual_stat_location['annual_mle'].year.values
-    y_ans = results_annual_stat_location['annual_mle'].location.values*factor_m_to_mm
-    weights_ans = results_annual_stat_location['annual_mle'].n_obs.values
+    x_ans = annual_stationary['annual_mle'].year.values
+    y_ans = annual_stationary['annual_mle'].location.values*factor_m_to_mm
+    weights_ans = annual_stationary['annual_mle'].n_obs.values
 
     # ------------ stationary -------------------
-    results_reg_annual_stat = annual_stationary_trend(results_annual_stat_location['annual_mle'])
+    results_reg_annual_stat = annual_stationary_trend(annual_stationary['annual_mle'])
 
     intercept_ans = results_reg_annual_stat['mu_trend']['mu0']
     slope_ans = results_reg_annual_stat['mu_trend']['mu1']
 
     # ------------ non-stationary -------------------
-    nonstationary = results_per_location['nonstationary']
-
     mu0_ns = nonstationary['params_hat'][0]*factor_m_to_mm
     mu1_ns = nonstationary['params_hat'][1]*factor_m_to_mm
-    #mu0_std_ns = nonstationary['params_std'][0]*factor_m_to_mm
-    #mu1_std_ns = nonstationary['params_std'][1]*factor_m_to_mm
 
     mu_ns = mu0_ns + mu1_ns * years_autoscaled
 
@@ -2067,7 +2062,7 @@ def prepare_for_regression(
         'stationary': (x_ans, y_ans, weights_ans, results_reg_annual_stat, slope_ans, intercept_ans), 
         'nonstationary': (mu_ns, mu1_ns, mu0_ns, mu_ns_ci_lower, mu_ns_ci_upper),
         }
-    
+
     
 def fit_annual_gev_mle(df, ls_notes, col_data='storm_surge', col_year='sim_year'):
     """
@@ -2078,7 +2073,7 @@ def fit_annual_gev_mle(df, ls_notes, col_data='storm_surge', col_year='sim_year'
     records = []
 
     for year, data in annual_max_per_year.items():
-        result, ls_notes = gev.mle_fitting(data, len(data), ls_notes)
+        result, ls_notes = mle_fitting(data, len(data), ls_notes)
         records.append((year, result))
     
     flattened = []
@@ -2118,7 +2113,7 @@ def fit_location(loc_id, df, ls_notes):
     """
     Fits annual stationary GEV MLEs and computes mu trend regression
     """
-    annual_df = fit_annual_gev_mle(df, ls_notes=None)
+    annual_df = fit_annual_gev_mle(df, ls_notes=ls_notes)
     trend_results = regress_location_trend(annual_df)
 
     return loc_id, {

@@ -266,9 +266,9 @@ def main(args):
                     plot_t_eval=[LS_T_EVAL[0]], plot_evolution=[int(i.split('-')[0]) for i in PLOT_PERIOD_EVOLUTION],
                     leg_comparison_x=0.075, leg_comparison_y=0.35, box_parameters_x=0.45,  box_parameters_y= 0.95,
                     linestyle_trends = ['-', '--', '-.', ':', (0, (1, 1)), (0, (5, 10))], 
-                    fontsize=12, figsize=(15, 7.5), display_results=True
+                    fontsize=12, figsize=(15, 7.5), display_results=DISPLAY_RESULTS
                     )
-                print(271, result.keys())
+
                 lat = str(result['LatLon'][0].round(3))
                 lon = str(result['LatLon'][1].round(3))
                 country = result['location_info'].split(' ')[-1].strip()
@@ -284,52 +284,47 @@ def main(args):
         logger.info('Computing stationary GEV analysis per year...')
 
         try:
-            results_all.keys()
-            logger.info('✓ continue with available dictionary')
-            
+            dic_data_per_location.keys()
+            logger.info('✓ continue with available dictionary')  
         except NameError:
-            path_import = os.path.join(args.input_dir)
-            logger.info('Import data from folder %s...', path_import)
-            
-            results_all = ut.load_pooled_results(path_import)
-            logger.info('Imported %s locations', len(results_all))
+            ls_files = sorted(glob.glob(os.path.join(args.input_dir, args.pattern)))
+            if not ls_files:
+                raise FileNotFoundError(f"No files found in {args.input_dir} matching {args.pattern}")
 
-        if args.start_loc is not None or args.end_loc is not None: 
-            start_loc = args.start_loc if args.start_loc is not None else min(dic_data_per_location.keys()) 
-            end_loc = args.end_loc if args.end_loc is not None else max(dic_data_per_location.keys())
-            results_all = ut.select_allowed_locations(
-                dic_data_per_location=results_all, 
-                start_loc=start_loc,
-                end_loc=end_loc
-                )
-            logger.info('Processing locations %s to %s (%s total)', start_loc, end_loc, len(results_all))
-        
-        else:
-            logger.info('Processing all %s locations', len(results_all))
+            logger.info('Import data from folder %s...', os.path.join(args.input_dir))
+            dic_data_per_model = dbf.import_all_models(ls_files)
+
+            logger.info('Pooling and Preparing Data...')
+            dic_data_per_model, combined, notes_overview = dbf.prepare_combined_data(ls_files, dic_data_per_model)
+            dic_notes_analysis['data overview'] = notes_overview
+            
+            logger.info('Rearranging Data – sorting per location...')
+            dic_data_per_location = dbf.extract_location_data(combined, HINDCAST_START, HINDCAST_END)
+            
+            if args.start_loc is not None or args.end_loc is not None: 
+                start_loc = args.start_loc if args.start_loc is not None else min(dic_data_per_location.keys()) 
+                end_loc = args.end_loc if args.end_loc is not None else max(dic_data_per_location.keys())
+                dic_data_per_location = ut.select_allowed_locations(
+                    dic_data_per_location=dic_data_per_location, 
+                    start_loc=start_loc,
+                    end_loc=end_loc
+                    )
+                logger.info('Processing locations %s to %s (%s total)', start_loc, end_loc, len(dic_data_per_location))
+            else:
+                logger.info('Processing all %s locations', len(dic_data_per_location))
         
         logger.info('Run annual stationary GEV analysis...')
-        results_extended = gev.fit_all_locations(results_all, n_jobs=-1)
-        # results_extended, ls_notes_analysis = run_annual_gev(results_all)
-        # dic_notes_analysis['annual_statGEV'] = ls_notes_analysis
+        results_extended = gev.fit_all_locations(dic_data_per_location, n_jobs=-1)
         
         if save_results:
             try:
                 dir_export = path_child_folder
             except:
                 today_ = str(datetime.today().date().isoformat())   
-                dir_export = Path(path_import) / f"{today_}"
-                
-            ut.store_annual_stat_results(results_extended, dir_export)
-
-            #ut.save_annual_stationary_results(
-            #    results={
-            #        site_id: {"fit results": site_data["fit results"]}
-            #        for site_id, site_data in results_extended.items()
-            #        if "fit results" in site_data
-            #        },
-            #    base_dir=path_import
-            #)
-            logger.info('Results successfully added/stored in fit results.pkl %s.', path_import)
+                path_child_folder = Path(PATH_EXPORT) / "gev_analysis" / f"{today_}"
+            ut.store_annual_stat_results(results_extended, path_child_folder)
+            
+            logger.info('Results successfully added/stored in fit results.pkl %s.', path_child_folder)
         else:
             logger.info('Skipping to save fit results...')
             
@@ -338,60 +333,36 @@ def main(args):
             'Compute regression for location parameter using non-stationary and annual stationary GEV approach...'
             )
         
-        try:
-            results.keys()
-            logger.info('✓ continue with available dictionary')
-            
-        except NameError:
-            path_import = os.path.join(args.input_dir)
-            logger.info(
-                'Import fit results for annual stationary and non-stationary GEV analysis from folder %s...', 
-                path_import
-                )
-            results = ut.load_fit_results(path_import)
+        logger.info('Import relevant data from folder %s', args.input_dir)
+        [
+            results_annual_stat_all, results_nonstat_all, location_geo_info, location_point_info
+        ] = ut.import_info_for_regression(args.input_dir)
     
-        if args.start_loc is not None or args.end_loc is not None: 
-            start_loc = args.start_loc if args.start_loc is not None else min(dic_data_per_location.keys()) 
-            end_loc = args.end_loc if args.end_loc is not None else max(dic_data_per_location.keys())
-            results = ut.select_allowed_locations(
-                dic_data_per_location=results, 
-                start_loc=start_loc,
-                end_loc=end_loc
-                )
-            logger.info('Processing locations %s to %s (%s total)', start_loc, end_loc, len(results))
-
-        else:
-            logger.info('Processing all %s locations', len(results))
-
-        for loc_id, result in results.items():
+    
+        for loc_id in results_annual_stat_all.keys():
             years_, dic_trend = gev.prepare_for_regression(
-                results_per_location=results, 
-                years_mean=result['nonstationary']['years_mean'],  years_std=result['nonstationary']['years_std'], 
-                hindcast_start=HINDCAST_START, hindcast_end=HINDCAST_END, z_percentile=1.96, factor_m_to_mm=1000
+                annual_stationary=results_annual_stat_all[loc_id], 
+                nonstationary=results_nonstat_all[loc_id],
+                years_mean=results_nonstat_all[loc_id]['years_mean'], 
+                years_std=results_nonstat_all[loc_id]['years_std'], 
+                hindcast_start=HINDCAST_START, hindcast_end=HINDCAST_END,
+                z_percentile=1.96, factor_m_to_mm=1000
                 ) 
 
             fig_reg = dbplt.plot_location_regression(
-                loc_id, years_, dic_trend, result, 
-                axes_color='#333333', markers_color="#99E3DDFF", 
-                colors_reg=['#CAA5C2FF',  '#005C55FF'], fontsize=12
+                loc_id, years_, dic_trend, results_annual_stat_all[loc_id], fontsize=12,
+                axes_color='#333333', markers_color="#99E3DDFF", colors_reg=['#CAA5C2FF',  '#005C55FF'], 
                 )
             
             try:
                 dir_export = path_child_folder
             except:
                 today_ = str(datetime.today().date().isoformat())   
-                dir_export = Path(path_import) / f"{today_}"
+                dir_export = Path(PATH_EXPORT) / 'gev_analysis'/ f"{today_}"
 
-            ut.store_location_regression(fig_reg, loc_id, result['LatLon'], result['location_info'], dir_export)
-        #results = run_weighted_least_square_regression(results)
-        
-        #logger.info(
-        #    'WLS Regression for done; now computing regression and saving results (%s) and figures (%s) as defined)...',
-        #    save_results, save_plots
-        #    )
-        #ut.plot_and_save_regression_analysis(
-        #    results=results, path_export=path_import, save_regression=save_results, save_figures=save_plots
-        #    )
+            ut.store_location_regression(
+                fig_reg,loc_id, location_geo_info[loc_id], location_point_info[loc_id], dir_export
+                )
 
     logger.info('All analyses done; next store output...')
     ut.store_analysis_notes(dic_notes_analysis, PATH_EXPORT + 'gev_analysis/')
