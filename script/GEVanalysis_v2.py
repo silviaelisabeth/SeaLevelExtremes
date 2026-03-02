@@ -12,7 +12,6 @@ import func_utils as ut
 import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 from tqdm import tqdm
-from tqdm_joblib import tqdm_joblib
 
 # --------------------------------------------------------------------------
 # CONFIGURATION
@@ -227,23 +226,19 @@ def main(args):
         location_labels = dbf.precompute_location_labels(dic_data_per_location)
         
         logger.info('Run GEV analysis with pooled data...')
-        loc_items = [(loc_id, dic_data_per_location[loc_id]) for loc_id in dic_data_per_location]
-        results_list = Parallel(n_jobs=-1,backend="loky",verbose=10)(
-            delayed(gev.process_gev_per_location)(
-                loc_id,
-                df_prepared,
-                location_labels,
+        
+        location_ids = list(dic_data_per_location.keys())
+        parallel_output = Parallel(n_jobs=-1,backend="loky")(
+            delayed(gev._pooled_gev_per_single_location)(
+                loc_id=loc_id,
+                dic_data_per_location=dic_data_per_location,
                 return_periods=RETURN_PERIODS,
                 ls_t_eval=LS_T_EVAL,
-                uncertainty=UNCERTAINTY,
-                min_years=10,
-                B=B,
-                seed=SEED,
-                verbose=False
+                location_labels=location_labels
             )
-            for loc_id, df_prepared in loc_items
+            for loc_id in location_ids
         )
-        results_all = {loc_id: result for loc_id, result in results_list if result is not None} 
+        results_all = dict(parallel_output)
 
         logger.info('Saving data per artifacts...')   
         today_ = str(datetime.today().date().isoformat())   
@@ -365,7 +360,7 @@ def main(args):
                 )
 
     logger.info('All analyses done; next store output...')
-    ut.store_analysis_notes(dic_notes_analysis, PATH_EXPORT + 'gev_analysis/')
+    ut.store_analysis_notes(dic_notes_analysis, PATH_LOGS)
 
     # ---------------------------------------------------------------------------------------
     logger.info('Analysis completed. Log saved at %s', log_path)

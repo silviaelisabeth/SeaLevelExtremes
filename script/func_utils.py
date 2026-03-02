@@ -61,18 +61,27 @@ def initialize_logger_v1(log_filename:str, log_dir:str="../logs"):
     return orig_stdout, orig_stderr, fh, logger, log_path
 
 
-def initialize_logger_v2(dir_logs:str, log_name:str=None)->tuple[Logger,FileHandler,str]:
-    """
-    Returns a simple logger that writes to a timestamped file in path_logs.
-    """
+def initialize_logger_v2(dir_logs:str, log_name:str=None):
+    import logging
+    import os
+    from datetime import datetime
+
     if log_name is None:
         log_name = f"LOGS_GEVAnalysis_{datetime.now():%Y%m%d_%H%M%S}.log"
     log_path = os.path.join(dir_logs, log_name)
+
+    # explicitly get the named logger
+    logger = logging.getLogger("GEVanalysis_v2")
     logger.setLevel(logging.INFO)
-    fh = logging.FileHandler(log_path)
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
+
+    if not logger.hasHandlers():
+        fh = logging.FileHandler(log_path)
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+    else:
+        fh = None
+
     return logger, fh, log_path
 
 
@@ -652,4 +661,5 @@ def import_info_for_regression(dir_import):
         
     with open(dir_import + '/location_info.pkl', "rb") as f:
         location_point_info = pickle.load(f)
+    return results_annual_stat_all, results_nonstat_all, location_geo_info, location_point_info
     return results_annual_stat_all, results_nonstat_all, location_geo_info, location_point_info
