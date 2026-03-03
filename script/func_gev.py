@@ -740,7 +740,9 @@ def _pooled_gev_per_single_location(
     return_periods,
     ls_t_eval,
     location_labels,
+    logger,
     min_years=10,
+    logging=True,
 ):
     """
     Run stationary / non-stationary GEV analysis for a single location.
@@ -758,7 +760,7 @@ def _pooled_gev_per_single_location(
         "unknown location"
     )
 
-    print(f'GEV analysis for location {loc_id} · {location_info}')
+    logger.info(f'GEV analysis for location {loc_id} · {location_info}')
 
     # -------------------------------------------------------
     # Extract annual maxima
@@ -767,7 +769,7 @@ def _pooled_gev_per_single_location(
     )
 
     if len(annual_max) < min_years:
-        print(
+        logger.info(
             f'WARNING - not enough data (<{min_years}) '
             f'for location {loc_id} (lon|lat · {lon_loc}|{lat_loc})'
         )
@@ -782,17 +784,17 @@ def _pooled_gev_per_single_location(
         data=data,
         years=years,
         print_msg=True,
-        logging=False,
-        logger=None
+        logging=logging,
+        logger=logger
     )
 
-    print(f"\tLoc {loc_id} | → (Non-)Stationary GEV done (success {pooled_gev is not None})")
+    logger.info(f"\tLoc {loc_id} | → (Non-)Stationary GEV done (success {pooled_gev is not None})")
 
     if pooled_gev is None:
         return loc_id, None
 
     # -------------------------------------------------------
-    print(f"\tLoc {loc_id} | Compare Models...")
+    logger.info(f"\tLoc {loc_id} | Compare Models...")
     comparison = compare_stationary_nonstationary(
         pooled_gev['stationary'],
         pooled_gev['nonstationary'],
@@ -800,7 +802,7 @@ def _pooled_gev_per_single_location(
     )
 
     # -------------------------------------------------------
-    print(f"\tLoc {loc_id} | Compute Return Levels...")
+    logger.info(f"\tLoc {loc_id} | Compute Return Levels...")
     df_all_return_levels = compute_all_return_levels(
         pooled_gev['stationary'],
         pooled_gev['nonstationary'],

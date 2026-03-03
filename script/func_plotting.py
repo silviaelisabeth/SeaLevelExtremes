@@ -6,12 +6,12 @@ import cmcrameri.cm as cmc
 import func_utils as ut
 import matplotlib
 import matplotlib.gridspec as gridspec
+import numpy as np
 import pydeck as pdk
 import seaborn as sns
 from matplotlib import rcParams
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from numpy import arange, array, linspace, nan, ndarray, sqrt
 from pandas import DataFrame
 from statsmodels.regression.linear_model import RegressionResultsWrapper
 
@@ -94,11 +94,11 @@ def create_map_location_missing_valid_data(
 def plot_gev_mu_trend(
     df: DataFrame,
     weights: list,
-    year_grid: ndarray,
+    year_grid: np.ndarray,
     year_mean: float,
-    y_pred: ndarray,
+    y_pred: np.ndarray,
     wls_delta:RegressionResultsWrapper,
-    nonstat_years: array,
+    nonstat_years: np.array,
     nonstat: dict,
     lat:float,
     lon:float,
@@ -118,13 +118,13 @@ def plot_gev_mu_trend(
 
     mask = df['location'].notna() & df['var_mu'].notna()
     df_plot = df[mask].copy()
-    weights_plot = array(weights)[mask]
+    weights_plot = np.array(weights)[mask]
 
     # annual stationary GEV - CI
     cov = wls_delta.cov_params().values  
     t_centered = year_grid - year_mean
     pred_var_t = cov[0,0] + t_centered**2 * cov[1,1] + 2 * t_centered * cov[0,1]
-    pred_std_t = sqrt(pred_var_t)
+    pred_std_t = np.sqrt(pred_var_t)
     y_upper = y_pred + 1.96 * pred_std_t
     y_lower = y_pred - 1.96 * pred_std_t
     
@@ -437,20 +437,20 @@ def plot_level_evolution(
         If True, skip plotting non-stationary return levels
     """
     
-    x = arange(len(periods))
+    x = np.arange(len(periods))
     def extract_level_and_ci(entry, period):
         if entry is None or not isinstance(entry, dict) or 'values' not in entry or entry['values'] is None:
-            return nan, 0, 0
+            return np.nan, 0, 0
 
         lvl = entry['values'].get(period, None)
         if lvl is None:
-            return nan, 0, 0
+            return np.nan, 0, 0
         
         if isinstance(lvl, dict):
             return (
-                lvl.get('return_level', nan),
-                lvl.get('return_level', nan) - lvl.get('CI_lower', 0),
-                lvl.get('CI_upper', 0) - lvl.get('return_level', nan)
+                lvl.get('return_level', np.nan),
+                lvl.get('return_level', np.nan) - lvl.get('CI_lower', 0),
+                lvl.get('CI_upper', 0) - lvl.get('return_level', np.nan)
             )
         else:
             return lvl, 0, 0
@@ -459,7 +459,7 @@ def plot_level_evolution(
     start_entry = return_levels.get('nonstationary_start')
     if start_entry is None:
         logger.info("\t WARNING: No non-stationary start return levels")
-        levels_start = [nan]*len(periods)
+        levels_start = [np.nan]*len(periods)
         err_lower_start = [0]*len(periods)
         err_upper_start = [0]*len(periods)
         year_start = "N/A"
@@ -469,8 +469,8 @@ def plot_level_evolution(
             extract_level_and_ci(start_entry, p) for p in periods
         ])
 
-    levels_start = array(levels_start)
-    yerr_start = array([err_lower_start, err_upper_start])
+    levels_start = np.array(levels_start)
+    yerr_start = np.array([err_lower_start, err_upper_start])
     
     ax.bar(
         x - width/2, levels_start, width, yerr=yerr_start, capsize=4, alpha=0.7,
@@ -482,7 +482,7 @@ def plot_level_evolution(
         end_entry = return_levels.get('nonstationary_end')
         if end_entry is None:
             logger.info("\t WARNING: No non-stationary end return levels")
-            levels_end = [nan]*len(periods)
+            levels_end = [np.nan]*len(periods)
             err_lower_end = [0]*len(periods)
             err_upper_end = [0]*len(periods)
             year_end = "N/A"
@@ -492,8 +492,8 @@ def plot_level_evolution(
                 extract_level_and_ci(end_entry, p) for p in periods
             ])
         
-        levels_end = array(levels_end)
-        yerr_end = array([err_lower_end, err_upper_end])
+        levels_end = np.array(levels_end)
+        yerr_end = np.array([err_lower_end, err_upper_end])
         
         ax.bar(
             x + width/2, levels_end, width, color=color_levels[1], yerr=yerr_end, capsize=4, alpha=0.7,
@@ -515,6 +515,222 @@ def plot_level_evolution(
         "Return Levels Non-Stationary Evolution incl Uncertainty" if not skip_non_stat else
         "Return Levels Stationary incl. Uncertainty", fontsize=fontsize
     )
+
+
+def plot_equivalent_return_period(
+    ax, ls_t_eval, return_period_ex, ls_return_period_evolution_stat, ls_return_period_evolution_ns, 
+    colors, axes_color='#333333', fontsize=12
+    ):
+    
+    ax.axhline(return_period_ex, linestyle='--', color=colors[2], label=f'1961 {return_period_ex}-year level')
+
+    # --- stationary case --- 
+    years = np.asarray(ls_t_eval).ravel()
+
+    T_stat = float(ls_return_period_evolution_stat[0])
+    se_stat = float(ls_return_period_evolution_stat[1])
+
+    y_stat = np.full_like(years, T_stat, dtype=float)
+    yerr_stat = np.full_like(years, 1.96 * se_stat, dtype=float)
+
+    #T_stat = DataFrame(ls_return_period_evolution_stat).loc[0]
+    #se_stat = DataFrame(ls_return_period_evolution_stat).loc[1]
+    
+    ci_upper_stat = T_stat + 1.96 * se_stat
+    ci_lower_stat = T_stat - 1.96 * se_stat
+    
+    ax.plot(
+        ls_t_eval, [T_stat] * len(ls_t_eval), color=colors[0], linestyle='-', linewidth=1, label='stationary mean'
+    )
+    ax.errorbar(
+        x=years, y=y_stat, yerr=yerr_stat, fmt='o', capsize=4, color=colors[0]
+    )
+    
+    ax.fill_between( 
+        ls_t_eval, [ci_lower_stat] * len(ls_t_eval), [ci_upper_stat] * len(ls_t_eval), color=colors[0], alpha=0.25, 
+        label='stationary 95% CI'
+    )
+    
+    
+    # --- NON-stationary case --- 
+    df_ns = DataFrame(ls_return_period_evolution_ns)
+    years = df_ns[0].values
+    T_ns = df_ns[1].values
+    se_ns = df_ns[2].values
+
+    ci_upper = T_ns + 1.96 * se_ns
+    ci_lower = T_ns - 1.96 * se_ns
+    
+    ax.plot(
+        years, T_ns, color=colors[1], linestyle='-', linewidth=1, label='non-stationary mean'
+    )
+    ax.errorbar(
+        x=ls_t_eval, y=DataFrame(ls_return_period_evolution_ns)[1].values, 
+        yerr=1.96*DataFrame(ls_return_period_evolution_ns)[2].values, 
+        fmt='o', capsize=4, color=colors[1],
+        )
+    
+    ax.fill_between(
+        years, ci_lower, ci_upper, color=colors[1], alpha=0.25, label='non-stationary 95% CI'
+    )
+
+    leg = ax.legend(loc=0, edgecolor=axes_color, borderpad=.65, fontsize=fontsize*0.75)
+    leg.get_frame().set_linewidth(.5)
+
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    ax.axhline(y=ax.get_ylim()[0], color=axes_color, linewidth=1.2, zorder=10)
+    ax.axvline(x=ax.get_xlim()[0], color=axes_color, linewidth=1.2, zorder=10)
+    ax.tick_params(axis='x', colors=axes_color)
+    ax.tick_params(axis='y', colors=axes_color)
+
+    ax.grid(True, alpha=0.3, color='lightgrey')
+
+    ax.set_title(
+        f'Equivalent Return Period of 1961 {return_period_ex}-year Event', 
+        fontsize=fontsize
+        )
+    ax.set_xlabel('Evaluation Year', fontsize=fontsize*0.9)
+    ax.set_ylabel('Equivalent Return Period, years', fontsize=fontsize*0.9)
+
+    plt.tight_layout()
+
+
+def plot_equivalent_return_period_bar_v0(
+    ax,
+    ls_return_period_evolution_stat,
+    ls_return_period_evolution_ns,
+    return_period_ex,
+    t_eval_base,
+    width=0.35, 
+    offset=0.5, 
+    colors:list=['#B887ADFF', '#008A80FF', '#333333'],
+    leg_position=(0.5, 1.25),
+    axes_color='#333333',
+    fontsize=9,
+):
+    
+    rl_ns = DataFrame(ls_return_period_evolution_ns)
+    rl_stat = DataFrame(ls_return_period_evolution_stat).T
+    
+    ax.axhline(
+        return_period_ex, ls='--', lw=1., color=colors[2], 
+        label=f'{t_eval_base} {return_period_ex}-year base level'
+        )
+
+    ax.bar(
+        x=rl_ns[0]+offset, height=rl_stat[0]*len(rl_ns.index), width=width, yerr=rl_ns[1]*len(rl_ns.index), lw=0.5,
+        color=colors[0], capsize=4, label='stationary mean incl. 95% CI'
+        )
+    ax.bar(
+        x=rl_ns[0]-offset, height=rl_ns[1], width=width, yerr=rl_ns[2], color=colors[1],  lw=0.5,
+        capsize=4, label='non-stationary mean incl. 95% CI'
+        )
+
+    leg = ax.legend(
+        loc='upper center', bbox_to_anchor=leg_position, ncol=3, edgecolor=axes_color, borderpad=.65, 
+        fontsize=fontsize*0.75
+        )
+    leg.get_frame().set_linewidth(.5)
+
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    ax.axhline(y=ax.get_ylim()[0], color=axes_color, linewidth=1.2, zorder=10)
+    ax.axvline(x=ax.get_xlim()[0], color=axes_color, linewidth=1.2, zorder=10)
+    ax.tick_params(axis='x', colors=axes_color)
+    ax.tick_params(axis='y', colors=axes_color)
+
+    ax.grid(True, alpha=0.3, color='lightgrey')
+
+    ax.set_title(
+        f'Equivalent Return Period of 1961 {return_period_ex}-year Event', fontsize=fontsize, pad=25
+        )
+    ax.set_xlabel('Evaluation Year', fontsize=fontsize*0.9)
+    ax.set_ylabel('Equivalent Return Period, years', fontsize=fontsize*0.9)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.90])
+
+
+def plot_equivalent_return_period_bar_v1(
+    ax,
+    ls_return_period_evolution_stat,
+    ls_return_period_evolution_ns,
+    return_period_ex,
+    t_eval_base,
+    colors,
+    leg_position=(0.5, 1.25),
+    width = 0.35,
+    axes_color='#333333',
+    fontsize=9,
+):
+    """
+    Grouped bar chart of stationary vs non-stationary
+    equivalent return periods including 95% CI.
+    """
+
+
+    rl_ns = DataFrame(ls_return_period_evolution_ns)
+
+    years = rl_ns[0].astype(int).values
+    x = np.arange(len(years))
+
+    # Stationary
+    T_stat = float(ls_return_period_evolution_stat[0])
+    se_stat = float(ls_return_period_evolution_stat[1])
+
+    stat_mean = np.full(len(x), T_stat)
+    stat_ci = np.full(len(x), 1.96 * se_stat)
+
+    # Nonstationary
+    ns_mean = rl_ns[1].values.astype(float)
+    ns_ci = 1.96 * rl_ns[2].values.astype(float)
+
+    ax.axhline(
+        return_period_ex, linestyle='--', linewidth=1, color=colors[2], 
+        label=f'{t_eval_base} {return_period_ex}-year base level'
+    )
+
+    ax.bar(
+        x - width/2, stat_mean, width=width, yerr=stat_ci, capsize=4, color=colors[0],
+        label='stationary mean incl. 95% CI'
+    )
+
+    ax.bar(
+        x + width/2, ns_mean, width=width, yerr=ns_ci, capsize=4, color=colors[1], 
+        label='non-stationary mean incl. 95% CI'
+    )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(years)
+
+    ax.set_xlabel('Evaluation Year', fontsize=fontsize)
+    ax.set_ylabel('Equivalent Return Period (years)', fontsize=fontsize)
+
+    ax.set_title(
+        f'Equivalent Return Period of {t_eval_base} {return_period_ex}-year Event',
+        fontsize=fontsize, pad=20
+    )
+
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    ax.axhline(y=ax.get_ylim()[0], color=axes_color, linewidth=1.2, zorder=10)
+    ax.axvline(x=ax.get_xlim()[0], color=axes_color, linewidth=1.2, zorder=10)
+
+    ax.tick_params(axis='x', colors=axes_color)
+    ax.tick_params(axis='y', colors=axes_color)
+
+    ax.grid(True, axis='y', alpha=0.3)
+
+    leg = ax.legend(
+        loc='upper center', bbox_to_anchor=leg_position, ncol=3, frameon=True, edgecolor=axes_color, 
+        fontsize=fontsize*0.8
+    )
+    leg.get_frame().set_linewidth(.5)
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.88])
 
 
 def plot_analysis(
@@ -931,18 +1147,149 @@ def plot_model_comparison_v2(
     ax.grid(True, alpha=0.3, color='lightgrey')
 
 
+def get_return_level_nonstat_at_t_base(rl, t_base, return_period_ex):
+    rl_t_base = rl[rl.t_eval == t_base]
+    rl_t_selected = rl_t_base[rl_t_base.return_period == return_period_ex]
+
+    rl_selected_stat = rl_t_selected[rl_t_selected.model == 'stationary']
+    rl_selected_nonstat = rl_t_selected[rl_t_selected.model == 'nonstationary']
+
+    return rl_selected_stat, rl_selected_nonstat
+
+
+def equivalent_return_period_ns(params, years_mean, years_std, z_ref, year_future):
+    mu0, mu1, sigma, xi = params
+    
+    t = (year_future - years_mean) / years_std
+    mu_t = mu0 + mu1 * t
+    
+    z = (z_ref - mu_t) / sigma
+
+    if abs(xi) < 1e-10:
+        F = np.exp(-np.exp(-z))
+    else:
+        term = 1 + xi * z
+        if term <= 0:
+            return np.inf
+        F = np.exp(-(term)**(-1/xi))
+
+    return 1 / (1 - F)
+
+
+def numerical_gradient(func, params, eps=1e-6):
+    grad = np.zeros_like(params)
+
+    for i in range(len(params)):
+        p_up = params.copy()
+        p_down = params.copy()
+        
+        p_up[i] += eps
+        p_down[i] -= eps
+
+        grad[i] = (func(p_up) - func(p_down)) / (2 * eps)
+    
+    return grad
+
+
+def delta_method_return_period(ns_model, z_ref, year_future):
+    
+    params = ns_model['params_hat']
+    cov = ns_model['cov_mu']
+    years_mean = ns_model['years_mean']
+    years_std = ns_model['years_std']
+    
+    def g(p):
+        return equivalent_return_period_ns(
+            p, years_mean, years_std, z_ref, year_future
+        )
+    
+    T_hat = g(params)
+    grad = numerical_gradient(g, params)
+
+    var_T = grad @ cov @ grad
+    se_T = np.sqrt(var_T)
+    
+    return T_hat, se_T
+
+
+def equivalent_return_period_stat(stat_model, z_ref):
+    """
+    Compute equivalent return period for pooled stationary GEV
+    including delta-method uncertainty.
+    """
+    xi = stat_model['shape']
+    mu = stat_model['location']
+    sigma = stat_model['scale']
+
+    params = np.array([xi, mu, sigma])
+    cov = stat_model['cov'] 
+
+    def g(p):
+        xi_, mu_, sigma_ = p
+        z = (z_ref - mu_) / sigma_
+
+        if abs(xi_) < 1e-10:
+            F = np.exp(-np.exp(-z))
+        else:
+            term = 1 + xi_ * z
+            if term <= 0:
+                return np.inf
+            F = np.exp(-(term)**(-1/xi_))
+
+        return 1 / (1 - F)
+
+    def numerical_gradient(func, params, eps=1e-6):
+        grad = np.zeros_like(params)
+        for i in range(len(params)):
+            p_up = params.copy()
+            p_down = params.copy()
+            p_up[i] += eps
+            p_down[i] -= eps
+            grad[i] = (func(p_up) - func(p_down)) / (2 * eps)
+        return grad
+
+    T_hat = g(params)
+    grad = numerical_gradient(g, params)
+
+    var_T = grad @ cov @ grad
+    se_T = np.sqrt(var_T)
+
+    return T_hat, se_T
+
+
+def prepare_return_level_from_reference(result_loc, t_eval_ex, ls_t_eval, return_period_base):
+    rl_selected_stat, rl_selected_nonstat = get_return_level_nonstat_at_t_base(
+        rl=result_loc['return_levels'], t_base=t_eval_ex, return_period_ex=return_period_base
+        )
+    
+    ls_return_period_evolution_ns = list()
+    for t_eval in ls_t_eval:
+        T_hat, se_T = delta_method_return_period(
+            ns_model=result_loc['nonstationary'], z_ref=rl_selected_nonstat.z_T.values[0], year_future=t_eval
+            )
+        ls_return_period_evolution_ns.append((t_eval, T_hat, se_T))
+        
+        
+    ls_return_period_evolution_stat = equivalent_return_period_stat(
+        stat_model=result_loc['stationary'], z_ref=rl_selected_stat.z_T.values[0]
+        )
+    return ls_return_period_evolution_stat, ls_return_period_evolution_ns
+
+
 def plot_pooled_analysis_v2(
     result: dict,
     site_id: int,
+    t_eval_base:int,
     return_periods:list[int],
-    plot_t_eval:list[int] | None,
     plot_evolution:list[int],
     save_path: str = None,
+    return_period_base: int = 50,
     box_parameters_x: float = 0.45, 
     box_parameters_y: float = 0.95,
     color_markers: str = '#99E3DDFF',
     bbox_color: str = '#F5F5F5FF',
     colors_models: list[str] = ['#B887ADFF', '#008A80FF'],
+    colors_return_period: list[str] = ['#B887ADFF', '#008A80FF', '#333333'],
     linestyle_trends: list = ['-', '--', '-.', ':', (0, (1, 1)), (0, (5, 10))],
     axes_color: str = '#333333',
     leg_comparison_x: float = 0.075,
@@ -953,6 +1300,8 @@ def plot_pooled_analysis_v2(
     display_results: bool = False,
     plot_ci:bool=False,
     factor_m_to_mm=1000,
+    width_bar=0.35,
+    leg_position_rl=(0.5, 1.1),
     ):
     """Create comprehensive visualization."""
     location_info = result['location_info']
@@ -966,7 +1315,7 @@ def plot_pooled_analysis_v2(
     ls_t_eval = result['return_levels'].reset_index().t_eval.unique()
     
     n_colors = len(return_periods)*2+1
-    indices = linspace(0, 1, n_colors)
+    indices = np.linspace(0, 1, n_colors)
     color_palette = palette_func(indices)
 
     # ----------------------------------------------------------------------------
@@ -1001,11 +1350,27 @@ def plot_pooled_analysis_v2(
 
     # ----------------------------------------------------------------------------
     # Plot BOTTOM-LEFT: Return levels evolution
-    plot_level_evolution_v2(
-        return_levels=result['return_levels'].reset_index(), color_levels=color_palette, plot_t_eval=plot_t_eval,
-        T_values=return_periods, alpha_levels=[0.35, 0.25, 0.05], fontsize=fontsize, axes_color=axes_color, 
-        ax=ax_bottom_left, 
+    ls_return_period_evolution_stat, ls_return_period_evolution_ns = prepare_return_level_from_reference(
+    result_loc=result, t_eval_ex=t_eval_base, ls_t_eval=ls_t_eval, return_period_base=return_period_base
     )
+    plot_equivalent_return_period_bar_v1(
+        ls_return_period_evolution_stat=ls_return_period_evolution_stat,
+        ls_return_period_evolution_ns=ls_return_period_evolution_ns,
+        return_period_ex=return_period_base, t_eval_base=t_eval_base, colors=colors_return_period, width=width_bar,
+        axes_color='#333333', fontsize=fontsize, ax=ax_bottom_left, leg_position=leg_position_rl
+    )
+    
+    #plot_equivalent_return_period(
+    #    ax=ax_bottom_left, ls_t_eval=ls_t_eval, return_period_ex=return_period_base, colors=colors_return_period, 
+    #    ls_return_period_evolution_stat=ls_return_period_evolution_stat, 
+    #    ls_return_period_evolution_ns=ls_return_period_evolution_ns, axes_color='#333333', fontsize=fontsize
+    #)
+    
+    #plot_level_evolution_v2(
+    #    return_levels=result['return_levels'].reset_index(), color_levels=color_palette, plot_t_eval=plot_t_eval,
+    #    T_values=return_periods, alpha_levels=[0.35, 0.25, 0.05], fontsize=fontsize, axes_color=axes_color, 
+    #    ax=ax_bottom_left, 
+    #)
 
     # ----------------------------------------------------------------------------
     # Plot BOTTOM-RIGHT: Model comparison
@@ -1037,6 +1402,7 @@ def plot_pooled_analysis_v2(
     plt.show() if display_results else plt.close(fig)
     
     return fig
+
 
 def plot_location_regression(
     loc_id, years_, dic_trend, results_annual_stat_location, 

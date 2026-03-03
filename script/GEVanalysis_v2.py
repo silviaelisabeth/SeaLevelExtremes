@@ -21,119 +21,20 @@ PATH_LOGS = '../logs/'
 HINDCAST_START = 1960
 HINDCAST_END = 2026
 RETURN_PERIODS = [10, 25, 50, 100, 200]
+RETURN_PERIOD_EVAL=50
 PLOT_PERIOD_EVOLUTION = ['10-year', '50-year', '100-year']
+T_EVAL_BASE = 1961
+LS_T_EVAL = 1961, 2026, 2050
 
 DISPLAY_RESULTS = False
 EXPORT_REPORT = True
 SAVE_REGRESSION_SUMMARY = True
-CHUNK_SIZE = 500
-LS_T_EVAL = 2026, 2050
 UNCERTAINTY = 'delta'
-B = 300 
-SEED = None
-
 _LOCATION_LABELS = None
-
 
 ls_default = ['pooled', 'annual-stationary', 'regression'] # additional 'map'
 
-# --------------------------------------------------------------------------
-# UTILITY FUNCTIONS
-# --------------------------------------------------------------------------
-def set_location_labels(labels):
-    global _LOCATION_LABELS
-    _LOCATION_LABELS = labels
 
-
-def process_location(location_item)->dict:
-    loc_id, df_prepared = location_item
-    messages = []
-
-    lon_loc = df_prepared.lon.unique()[0]
-    lat_loc = df_prepared.lat.unique()[0]
-
-    location_info = _LOCATION_LABELS.get((round(lon_loc,6), round(lat_loc,6)), "unknown location")
-
-    result, ls_warnings = gev.analyze_per_location(
-        df_prepared, loc_id, lat_loc, lon_loc, location_info, RETURN_PERIODS
-    )
-    if ls_warnings:
-        messages.append({loc_id: ls_warnings})
-
-    if result is None:
-        messages.append(f"No valid GEV fit for location {loc_id}")
-        return loc_id, None, messages
-
-    return {
-        "loc_id": loc_id,
-        "data": df_prepared,
-        "result": result,
-        "location_info": {"lat": lat_loc, "lon": lon_loc,"label": location_info},
-        "messages": messages,
-    }
-
-
-def run_gev_parallel(dic_data_per_location:dict, location_labels, n_jobs=None)->tuple[dict,list]:
-    if n_jobs is None:
-        n_jobs = max(1, mp.cpu_count() - 1)
-
-    set_location_labels(location_labels)
-
-    with Parallel(n_jobs=-1) as parallel:
-        out = parallel(n_jobs=n_jobs, backend='loky', verbose=10)(
-        delayed(process_location)(item) for item in list(dic_data_per_location.items())
-        )
-
-    all_data = []
-    results = {}
-    location_info = {}
-    ls_notes = []
-
-    for res in out:
-        if res is None:
-            continue
-
-        loc_id = res["loc_id"]
-        all_data.append(res["data"].assign(location_id=loc_id))
-        results[loc_id] = res['result']
-        location_info[loc_id] = res["location_info"]
-
-        if res.get("messages"):
-            ls_notes.extend(res["messages"])
-
-    return {
-        "data": all_data,
-        "results": results,
-        "location_info": location_info,
-    }, ls_notes
-
-
-def run_annual_gev(results:dict)->tuple[dict,list]:
-    results_extended, ls_notes_analysis = gev.execute_and_store_stat_gev_per_year_mp(
-        results=results, store_results=False, return_periods=RETURN_PERIODS
-    )
-
-    for key, outer_list in ls_notes_analysis.items():
-        ls_notes_analysis[key] = [inner for inner in outer_list if inner]
-    return results_extended, ls_notes_analysis
-
-
-def run_weighted_least_square_regression(results: dict)->dict:
-    with Parallel(n_jobs=-1) as parallel:
-        results_parallel = parallel(n_jobs=-1)(
-        delayed(gev.weighted_least_square_regression_for_site_mp)(site_id, results[site_id])
-            for site_id in tqdm(list(results.keys()))
-        )
-
-    for site_id, analysis_dict in results_parallel:
-        results.setdefault(site_id, {}).update(analysis_dict)
-
-    return results
-
-
-# --------------------------------------------------------------------------
-# MAIN
-# --------------------------------------------------------------------------
 def main(args):
 
     logger, fh, log_path = ut.initialize_logger_v2(dir_logs=PATH_LOGS)
@@ -226,7 +127,6 @@ def main(args):
         location_labels = dbf.precompute_location_labels(dic_data_per_location)
         
         logger.info('Run GEV analysis with pooled data...')
-        
         location_ids = list(dic_data_per_location.keys())
         parallel_output = Parallel(n_jobs=-1,backend="loky")(
             delayed(gev._pooled_gev_per_single_location)(
@@ -234,7 +134,9 @@ def main(args):
                 dic_data_per_location=dic_data_per_location,
                 return_periods=RETURN_PERIODS,
                 ls_t_eval=LS_T_EVAL,
-                location_labels=location_labels
+                location_labels=location_labels,
+                logging=True,
+                logger=logger
             )
             for loc_id in location_ids
         )
@@ -257,12 +159,12 @@ def main(args):
             
             for loc_id, result in results_all.items():
                 fig = dbplt.plot_pooled_analysis_v2(
-                    result=result, site_id=loc_id, return_periods=RETURN_PERIODS, 
-                    plot_t_eval=[LS_T_EVAL[0]], plot_evolution=[int(i.split('-')[0]) for i in PLOT_PERIOD_EVOLUTION],
-                    leg_comparison_x=0.075, leg_comparison_y=0.35, box_parameters_x=0.45,  box_parameters_y= 0.95,
-                    linestyle_trends = ['-', '--', '-.', ':', (0, (1, 1)), (0, (5, 10))], 
-                    fontsize=12, figsize=(15, 7.5), display_results=DISPLAY_RESULTS
-                    )
+                    result=result, site_id=loc_id, t_eval_base=T_EVAL_BASE, return_period_base=RETURN_PERIOD_EVAL,
+                    return_periods=RETURN_PERIODS, display_results=DISPLAY_RESULTS, fontsize=12, figsize=(15, 7.5),
+                    plot_evolution=[int(i.split('-')[0]) for i in PLOT_PERIOD_EVOLUTION],
+                    leg_comparison_x=0.075, leg_comparison_y=0.35, box_parameters_x=0.15, box_parameters_y= 0.95,
+                    linestyle_trends = ['-', '--', '-.', ':', (0, (1, 1)), (0, (5, 10))],
+                )                    
 
                 lat = str(result['LatLon'][0].round(3))
                 lon = str(result['LatLon'][1].round(3))
