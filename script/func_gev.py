@@ -882,7 +882,9 @@ def fit_location(loc_id, df, ls_notes):
     """
     Fits annual stationary GEV MLEs and computes mu trend regression
     """
+    logger.info('Loc {loc_id} | compute annual GEV using MLE...')
     annual_df = fit_annual_gev_mle(df, ls_notes=ls_notes)
+    logger.info('Loc {loc_id} | compute location trend regression...')
     trend_results = regress_location_trend(annual_df)
 
     return loc_id, {

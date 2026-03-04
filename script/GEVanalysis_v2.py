@@ -1,7 +1,6 @@
 import argparse
 import gc
 import glob
-import multiprocessing as mp
 import os
 from datetime import datetime
 from pathlib import Path
@@ -21,16 +20,12 @@ PATH_LOGS = '../logs/'
 HINDCAST_START = 1960
 HINDCAST_END = 2026
 RETURN_PERIODS = [10, 25, 50, 100, 200]
-RETURN_PERIOD_EVAL=50
+RETURN_PERIOD_EVAL = 50
 PLOT_PERIOD_EVOLUTION = ['10-year', '50-year', '100-year']
 T_EVAL_BASE = 1961
 LS_T_EVAL = 1961, 2026, 2050
 
 DISPLAY_RESULTS = False
-EXPORT_REPORT = True
-SAVE_REGRESSION_SUMMARY = True
-UNCERTAINTY = 'delta'
-_LOCATION_LABELS = None
 N_JOBS = 4  
 BATCH_SIZE = 300      
 
@@ -38,11 +33,8 @@ ls_default = ['pooled', 'annual-stationary', 'regression'] # additional 'map'
 
 
 def main(args):
-
-    # logger, fh, log_path = ut.initialize_logger_v2(dir_logs=PATH_LOGS)
     logger, log_queue, listener, log_file_path = ut.setup_main_logging(logger_name="mp_gev_analysis")
 
-    # potential jobs to execute 'map', 'pooled', 'annual-stationary', 'regression'
     if args.jobs is not None:
         ls_jobs = list([job.strip() for job in args.jobs.split(',')])
     else:
@@ -247,13 +239,13 @@ def main(args):
                 logger.info('Processing all %s locations', len(dic_data_per_location))
         
         logger.info('Run annual stationary GEV analysis...')
-        results_extended = gev.fit_all_locations(dic_data_per_location, n_jobs=-1)
+        results_extended = gev.fit_all_locations(dic_data_per_location, n_jobs=N_JOBS)
         
         if save_results:
             try:
                 dir_export = path_child_folder
             except:
-                today_ = str(datetime.today().date().isoformat())   
+                today_ = str(datetime.today().date().isoformat())
                 path_child_folder = Path(PATH_EXPORT) / "gev_analysis" / f"{today_}"
             ut.store_annual_stat_results(results_extended, path_child_folder)
             

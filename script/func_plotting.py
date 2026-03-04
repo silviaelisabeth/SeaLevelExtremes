@@ -18,7 +18,7 @@ from statsmodels.regression.linear_model import RegressionResultsWrapper
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-logger = logging.getLogger("mp_gev_analysis")
+logger = logging.getLogger("gev_analysis")
 
 rcParams['font.family'] = [
     'Noto Sans',
@@ -669,6 +669,8 @@ def plot_equivalent_return_period_bar_v1(
     Grouped bar chart of stationary vs non-stationary
     equivalent return periods including 95% CI.
     """
+
+
     rl_ns = DataFrame(ls_return_period_evolution_ns)
 
     years = rl_ns[0].astype(int).values
@@ -676,34 +678,27 @@ def plot_equivalent_return_period_bar_v1(
 
     # Stationary
     T_stat = float(ls_return_period_evolution_stat[0])
-    mean_stat = np.full(len(x), T_stat)
-    #stat_ci = np.full(len(x), 1.96 * se_stat)
-    lower_stat = float(ls_return_period_evolution_stat[1])
-    upper_stat = float(ls_return_period_evolution_stat[2])
-    lower_stat_err = mean_stat - lower_stat
-    upper_stat_err = upper_stat - mean_stat
-    yerr_stat = np.vstack([lower_stat_err, upper_stat_err])
-    
+    se_stat = float(ls_return_period_evolution_stat[1])
+
+    stat_mean = np.full(len(x), T_stat)
+    stat_ci = np.full(len(x), 1.96 * se_stat)
+
     # Nonstationary
-    mean_ns = rl_ns[1].values.astype(float)
-    lower_ns = rl_ns[2].values.astype(float)
-    upper_ns = rl_ns[3].values.astype(float)
-    lower_ns_err = mean_stat - lower_ns
-    upper_ns_err = upper_ns - mean_stat
-    yerr_ns = np.vstack([lower_ns_err, upper_ns_err])
+    ns_mean = rl_ns[1].values.astype(float)
+    ns_ci = 1.96 * rl_ns[2].values.astype(float)
 
     ax.axhline(
         return_period_ex, linestyle='--', linewidth=1, color=colors[2], 
         label=f'{t_eval_base} {return_period_ex}-year base level'
     )
-    
+
     ax.bar(
-        x - width/2, mean_stat, width=width, yerr=yerr_stat, capsize=4, color=colors[0],
+        x - width/2, stat_mean, width=width, yerr=stat_ci, capsize=4, color=colors[0],
         label='stationary mean incl. 95% CI'
     )
 
     ax.bar(
-        x + width/2, mean_ns, width=width, yerr=yerr_ns, capsize=4, color=colors[1], 
+        x + width/2, ns_mean, width=width, yerr=ns_ci, capsize=4, color=colors[1], 
         label='non-stationary mean incl. 95% CI'
     )
 
@@ -1209,21 +1204,12 @@ def delta_method_return_period(ns_model, z_ref, year_future):
         )
     
     T_hat = g(params)
-    #grad = numerical_gradient(g, params)
-    #var_T = grad @ cov @ grad
-    #se_T = np.sqrt(var_T)
-    ### LOG DELTA METHOD
-    def h(p):
-        return np.log(g(p))
+    grad = numerical_gradient(g, params)
 
-    grad_log = numerical_gradient(h, params)
-    var_logT = grad_log @ cov @ grad_log
-    se_logT = np.sqrt(var_logT)
-
-    lower = np.exp(np.log(T_hat) - 1.96 * se_logT)
-    upper = np.exp(np.log(T_hat) + 1.96 * se_logT)
+    var_T = grad @ cov @ grad
+    se_T = np.sqrt(var_T)
     
-    return T_hat, lower, upper
+    return T_hat, se_T
 
 
 def equivalent_return_period_stat(stat_model, z_ref):
@@ -1263,21 +1249,12 @@ def equivalent_return_period_stat(stat_model, z_ref):
         return grad
 
     T_hat = g(params)
-    #grad = numerical_gradient(g, params)
-    #var_T = grad @ cov @ grad
-    #se_T = np.sqrt(var_T)
-    ### LOG DELTA METHOD
-    def h(p):
-        return np.log(g(p))
+    grad = numerical_gradient(g, params)
 
-    grad_log = numerical_gradient(h, params)
-    var_logT = grad_log @ cov @ grad_log
-    se_logT = np.sqrt(var_logT)
+    var_T = grad @ cov @ grad
+    se_T = np.sqrt(var_T)
 
-    lower = np.exp(np.log(T_hat) - 1.96 * se_logT)
-    upper = np.exp(np.log(T_hat) + 1.96 * se_logT)
-
-    return T_hat, lower, upper
+    return T_hat, se_T
 
 
 def prepare_return_level_from_reference(result_loc, t_eval_ex, ls_t_eval, return_period_base):
@@ -1287,10 +1264,10 @@ def prepare_return_level_from_reference(result_loc, t_eval_ex, ls_t_eval, return
     
     ls_return_period_evolution_ns = list()
     for t_eval in ls_t_eval:
-        T_hat, lower, upper = delta_method_return_period(
+        T_hat, se_T = delta_method_return_period(
             ns_model=result_loc['nonstationary'], z_ref=rl_selected_nonstat.z_T.values[0], year_future=t_eval
             )
-        ls_return_period_evolution_ns.append((t_eval, T_hat, lower, upper))
+        ls_return_period_evolution_ns.append((t_eval, T_hat, se_T))
         
         
     ls_return_period_evolution_stat = equivalent_return_period_stat(
