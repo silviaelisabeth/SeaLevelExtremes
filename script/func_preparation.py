@@ -14,7 +14,7 @@ from numpy import allclose, ndarray
 from pandas import DataFrame, MultiIndex, concat
 from xarray import DataArray, Dataset
 
-logger = logging.getLogger("GEVanalysis_v2")
+logger = logging.getLogger("mp_gev_analysis")
 
 #!!!ToDo: adding typing, remove unused functions...
 

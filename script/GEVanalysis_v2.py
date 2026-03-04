@@ -1,4 +1,5 @@
 import argparse
+import gc
 import glob
 import multiprocessing as mp
 import os
@@ -11,7 +12,6 @@ import func_preparation as dbf
 import func_utils as ut
 import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
-from tqdm import tqdm
 
 # --------------------------------------------------------------------------
 # CONFIGURATION
@@ -31,13 +31,16 @@ EXPORT_REPORT = True
 SAVE_REGRESSION_SUMMARY = True
 UNCERTAINTY = 'delta'
 _LOCATION_LABELS = None
+N_JOBS = 4  
+BATCH_SIZE = 300      
 
 ls_default = ['pooled', 'annual-stationary', 'regression'] # additional 'map'
 
 
 def main(args):
 
-    logger, fh, log_path = ut.initialize_logger_v2(dir_logs=PATH_LOGS)
+    # logger, fh, log_path = ut.initialize_logger_v2(dir_logs=PATH_LOGS)
+    logger, log_queue, listener, log_file_path = ut.setup_main_logging(logger_name="mp_gev_analysis")
 
     # potential jobs to execute 'map', 'pooled', 'annual-stationary', 'regression'
     if args.jobs is not None:
@@ -125,25 +128,53 @@ def main(args):
             '\nNote this is not the exact location...'
             )
         location_labels = dbf.precompute_location_labels(dic_data_per_location)
-        
-        logger.info('Run GEV analysis with pooled data...')
-        location_ids = list(dic_data_per_location.keys())
-        parallel_output = Parallel(n_jobs=-1,backend="loky")(
-            delayed(gev._pooled_gev_per_single_location)(
-                loc_id=loc_id,
-                dic_data_per_location=dic_data_per_location,
-                return_periods=RETURN_PERIODS,
-                ls_t_eval=LS_T_EVAL,
-                location_labels=location_labels,
-                logging=True,
-                logger=logger
-            )
-            for loc_id in location_ids
-        )
-        results_all = dict(parallel_output)
 
-        logger.info('Saving data per artifacts...')   
-        today_ = str(datetime.today().date().isoformat())   
+        location_items = []
+        for loc_id, df in dic_data_per_location.items():
+            lon = round(df.lon.unique()[0], 6)
+            lat = round(df.lat.unique()[0], 6)
+            label = location_labels.get((lon, lat), "unknown location")
+
+            location_items.append((loc_id, df, label))
+
+        logger.info('Run GEV analysis with pooled data...')
+        
+        n_locations = len(location_items)
+        results_all = {}
+        for batch_start in range(0, n_locations, BATCH_SIZE):
+            batch_end = min(batch_start + BATCH_SIZE, n_locations)
+            batch = location_items[batch_start:batch_end]
+
+            logger.info("Processing batch %s–%s of %s locations", batch_start + 1, batch_end, n_locations)
+            parallel_output = Parallel(
+                n_jobs=N_JOBS,
+                backend="loky",
+                batch_size=10,
+                max_nbytes="100M",
+                initializer=ut.worker_init,
+                initargs=(log_queue,)
+                )(
+                delayed(gev._pooled_gev_per_single_location)(
+                    loc_id=loc_id,
+                    location_data=location_data,
+                    return_periods=RETURN_PERIODS,
+                    ls_t_eval=LS_T_EVAL,
+                    location_info=label,
+                )
+                for loc_id, location_data, label in batch
+            )
+
+            results_all.update(dict(parallel_output))
+
+            del parallel_output
+            gc.collect()
+
+        logger.info("GEV analysis complete.")
+        bad_keys = [k for k, v in results_all.items() if v['stationary'] is None or v['nonstationary'] is None]
+        logger.info('%s locations with None results (stationary or non-stationary) found: %s', len(bad_keys), bad_keys)
+
+        logger.info('Saving data per attribute...')
+        today_ = str(datetime.today().date().isoformat())
         path_child_folder = Path(PATH_EXPORT) / "gev_analysis" / f"{today_}"
         if save_results:
             logger.info('Saving fit results per location...')
@@ -158,6 +189,11 @@ def main(args):
             logger.info('Preparing to save figures per location...')
             
             for loc_id, result in results_all.items():
+                if result.get('stationary') is None:
+                    logger.info('Loc %s | no results for stationary GEV, skipping location', loc_id)
+                    continue
+                
+                logger.info('Loc %s | plotting analysis overview', loc_id)
                 fig = dbplt.plot_pooled_analysis_v2(
                     result=result, site_id=loc_id, t_eval_base=T_EVAL_BASE, return_period_base=RETURN_PERIOD_EVAL,
                     return_periods=RETURN_PERIODS, display_results=DISPLAY_RESULTS, fontsize=12, figsize=(15, 7.5),
@@ -171,7 +207,7 @@ def main(args):
                 country = result['location_info'].split(' ')[-1].strip()
         
                 fig.savefig(
-                    fig_dir / f"location_{loc_id}_{country}_{lat}_{lon}_pooledGEVanalysis.png", 
+                    fig_dir / f"location_{loc_id}_{country}_{lat}_{lon}_pooledGEVanalysis.png",  
                     dpi=150, bbox_inches="tight"
                     )
                 plt.close(fig)
@@ -265,10 +301,8 @@ def main(args):
     ut.store_analysis_notes(dic_notes_analysis, PATH_LOGS)
 
     # ---------------------------------------------------------------------------------------
-    logger.info('Analysis completed. Log saved at %s', log_path)
-
-    logger.removeHandler(fh)
-    fh.close()
+    logger.info('Analysis completed. Logs saved as %s', log_file_path)
+    listener.stop()
 
 
 if __name__ == "__main__":

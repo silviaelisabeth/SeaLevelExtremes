@@ -1,26 +1,19 @@
 import logging
-import os
 import random
-import tempfile
 import warnings
-from datetime import datetime
-from pathlib import Path
 
-import func_plotting as dbplt
-import func_utils as ut
 import numpy as np
 import statsmodels.api as sm
-from IPython.display import Markdown, display
 from joblib import Parallel, delayed
-from pandas import DataFrame, concat, to_numeric
-from scipy import linalg, optimize, stats
-from scipy.optimize import approx_fprime, minimize
-from scipy.stats import chi2, genextreme, norm
+from pandas import DataFrame
+from scipy import linalg, stats
+from scipy.optimize import minimize
+from scipy.stats import chi2
 from statsmodels.tools.numdiff import approx_hess
-from tqdm import tqdm
 
 warnings.filterwarnings("ignore", category=FutureWarning)
-logger = logging.getLogger("GEVanalysis_v2")
+logger = logging.getLogger("mp_gev_analysis")
+
 _LOCATION_LABELS = None
 
 
@@ -29,11 +22,11 @@ def set_location_labels(labels):
     _LOCATION_LABELS = labels
     
 
-def print_and_append_notes(message:str, ls_notes:list, logger, logging:bool, print_msg: bool):
+def print_and_append_notes(message:str, ls_notes:list, print_msg: bool):
     if print_msg:
         print(message)
-    if logging:
-        logger.info(message)
+
+    logger.info(message)
     ls_notes.append(message)
     return ls_notes
 
@@ -304,16 +297,15 @@ def compute_cov_matrix_v1(gev_params: dict, data: np.ndarray, is_nonstationary:b
     except linalg.LinAlgError:
         print("Warning: Hessian not invertible; returning None")
         messages += "\n\t\t\tWarning: Hessian not invertible; returning None"
-        return None
+        return None, list, messages
 
     return cov_matrix, eigvals, messages
 
 
-def fit_stationary_gev_incl_uncertainty(loc_id, data, B, seed, ls_notes, print_msg, logger, logging):
+def fit_stationary_gev_incl_uncertainty(loc_id, data, B, seed, ls_notes, print_msg):
     stationary = fit_gev_mle(data, init_shape=0.0)
     ls_notes = print_and_append_notes(
-        message=f'\t\tLoc {loc_id} | MLE results: {stationary}', 
-        ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
+        message=f'\t\tLoc {loc_id} | MLE results: {stationary}', ls_notes=ls_notes, print_msg=print_msg
         )
 
     c_ml = -stationary["shape"]
@@ -323,7 +315,7 @@ def fit_stationary_gev_incl_uncertainty(loc_id, data, B, seed, ls_notes, print_m
     if np.any(np.isnan(H)) or np.linalg.det(H) <= 0:
         ls_notes = print_and_append_notes(
             message=f'\nLoc {loc_id} | Hessian invalid or singular; switching to bootstrap for CIs.',
-            ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
+            ls_notes=ls_notes, print_msg=print_msg
         )
         
         bs = gev_bootstrap(data, B=B, seed=seed)
@@ -347,14 +339,12 @@ def fit_stationary_gev_incl_uncertainty(loc_id, data, B, seed, ls_notes, print_m
         + f'\n\t\t\t  covariance = {cov}'
         + f'\n\t\t\t  standard errors = {std_errors}'
         )
-    ls_notes = print_and_append_notes(
-        message=message, ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
-        )
+    ls_notes = print_and_append_notes(message=message, ls_notes=ls_notes, print_msg=print_msg)
     return stationary, ls_notes
     
 
 def fit_non_stationary_gev_incl_uncertainty(
-    loc_id, data, stationary, uncertainty, years, ls_notes, print_msg, logger, logging
+    loc_id, data, stationary, uncertainty, years, ls_notes, print_msg, seed=None
     ):
     if uncertainty is None:
         uncertainty = 'delta'
@@ -387,16 +377,12 @@ def fit_non_stationary_gev_incl_uncertainty(
 
     except Exception as e:
         message = f"Loc {loc_id} | Non-stationary MLE fitting failed: {e}"
-        ls_notes = print_and_append_notes(
-            message=message, ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
-            )
+        ls_notes = print_and_append_notes(message=message, ls_notes=ls_notes, print_msg=print_msg)
 
         return None
     
     message = f'\t\t\tLoc {loc_id} | Nonstationary GEV - MLE {params_hat}'
-    ls_notes = print_and_append_notes(
-        message=message, ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
-        )
+    ls_notes = print_and_append_notes(message=message, ls_notes=ls_notes, print_msg=print_msg)
 
 
     nonstationary = {
@@ -405,26 +391,19 @@ def fit_non_stationary_gev_incl_uncertainty(
     
     if uncertainty == "delta":
         message = f"\t\t\tLoc {loc_id} | Computing delta method for non-stationary GEV..."
-        ls_notes = print_and_append_notes(
-            message=message, ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
-            )
+        ls_notes = print_and_append_notes(message=message, ls_notes=ls_notes, print_msg=print_msg)
 
         try:
             cov_ns, hessian_eigenvalues, messages = compute_cov_matrix_v1(
                 gev_params=nonstationary, data=data, years=years, is_nonstationary=True
                 )
             nonstationary['Hessian eigenvalues'] = hessian_eigenvalues
-
-            ls_notes = print_and_append_notes(
-                message=messages, ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
-                )
+            ls_notes = print_and_append_notes(message=messages, ls_notes=ls_notes, print_msg=print_msg)
 
         except:
             cov_ns = None
             message = f'Loc {loc_id} | Hessian inversion failed; Delta-method SD not computed.'
-            ls_notes = print_and_append_notes(
-                message=messages, ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
-                )
+            ls_notes = print_and_append_notes(message=messages, ls_notes=ls_notes, print_msg=print_msg)
 
         if cov_ns is not None:
 
@@ -435,7 +414,7 @@ def fit_non_stationary_gev_incl_uncertainty(
                 if np.any(diag_vals < 0):
                     ls_notes = print_and_append_notes(
                         message=f"Loc {loc_id} | Negative variance in cov diagonal: {diag_vals}",
-                        ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
+                        ls_notes=ls_notes, print_msg=print_msg
                     )
                     raise ValueError(f"Loc {loc_id} | Negative variance in cov diagonal: {diag_vals}")
 
@@ -443,29 +422,27 @@ def fit_non_stationary_gev_incl_uncertainty(
 
                 if np.any(np.isnan(params_std)):
                     ls_notes = print_and_append_notes(
-                        message=f"Loc {loc_id} | NaN in params_std after sqrt",
-                        ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
+                        message=f"Loc {loc_id} | NaN in params_std after sqrt", ls_notes=ls_notes, print_msg=print_msg
                     )
                     raise ValueError("Loc {loc_id} | NaN in params_std after sqrt")
             except Exception as e:
                 params_std = None
                 ls_notes = print_and_append_notes(
-                        message=f"Loc {loc_id} | params_std failed: {e}",
-                        ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
+                        message=f"Loc {loc_id} | params_std failed: {e}", ls_notes=ls_notes, print_msg=print_msg
                     )
 
             nonstationary['params_std'] = params_std
         else:
             ls_notes = print_and_append_notes(
                 message=f"Loc {loc_id} | Delta Method failed, falling back to Fisher Information",
-                ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
+                ls_notes=ls_notes, print_msg=print_msg
                 )
             uncertainty = "fisher"
 
     if uncertainty == "fisher":
         ls_notes = print_and_append_notes(
             message=f"Loc {loc_id} | Computing Fisher Information for non-stationary GEV...",
-            ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
+            ls_notes=ls_notes, print_msg=print_msg
             )
                     
         try:
@@ -477,21 +454,21 @@ def fit_non_stationary_gev_incl_uncertainty(
                 else:
                     ls_notes = print_and_append_notes(
                         message=f"Loc {loc_id} | Fisher Information failed (not all values computed), falling back to bootstrap",
-                        ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
+                        ls_notes=ls_notes, print_msg=print_msg
                     )
                     uncertainty = "bootstrap"
                     B = 300
             else:
                 ls_notes = print_and_append_notes(
                     message=f"Loc {loc_id} | Fisher Information failed, falling back to bootstrap",
-                    ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
+                    ls_notes=ls_notes, print_msg=print_msg
                     )
                 uncertainty = "bootstrap"
                 B = 150
         except Exception as e:
             ls_notes = print_and_append_notes(
                 message=f"Loc {loc_id} | Fisher Information exception: {e}, falling back to bootstrap",
-                ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
+                ls_notes=ls_notes, print_msg=print_msg
                 )
             uncertainty = "bootstrap"
             B = 300
@@ -499,7 +476,7 @@ def fit_non_stationary_gev_incl_uncertainty(
     if uncertainty == "bootstrap":
         ls_notes = print_and_append_notes(
             message=f"Loc {loc_id} | Computing bootstrap uncertainty for non-stationary GEV...",
-            ls_notes=ls_notes, print_msg=print_msg, logging=logging,logger=logger
+            ls_notes=ls_notes, print_msg=print_msg
             )
         
         if seed is not None:
@@ -535,15 +512,14 @@ def fit_non_stationary_gev_incl_uncertainty(
 
 def fit_pooled_gev_with_uncertainty(
     loc_id, data, year: int|None= None, years: list | None = None, uncertainty_ns:str|None ='delta', 
-    B:int=300, seed:int=42, print_msg=False, logging=False, logger=None
+    B:int=300, seed:int=42, print_msg=False
     ):
     ls_notes = []
     n = len(data)
 
     # ---- STEP 1: Get stationary ----
     ls_notes = print_and_append_notes(
-        message=f'\t\tLoc {loc_id} | Compute stationary GEV incl uncertainty', 
-        ls_notes=ls_notes, print_msg=print_msg, logging=logging, logger=logger
+        message=f'\t\tLoc {loc_id} | Compute stationary GEV incl uncertainty', ls_notes=ls_notes, print_msg=print_msg
         )   
 
     if n < 10:
@@ -552,41 +528,34 @@ def fit_pooled_gev_with_uncertainty(
             + f' in {year} if year else '
             + '. Need at least 10 for reliable GEV fit.'
         )
-        ls_notes = print_and_append_notes(
-            message=message, ls_notes=ls_notes, print_msg=print_msg, logging=logging, logger=logger
-            )
+        ls_notes = print_and_append_notes(message=message, ls_notes=ls_notes, print_msg=print_msg)
 
     try:
         stationary, ls_notes = fit_stationary_gev_incl_uncertainty(
             loc_id=loc_id, data=data, B=B, seed=seed, ls_notes=ls_notes, print_msg=print_msg, 
-            logger=logger, logging=logging
             )
         pooled_gev = dict({'stationary': stationary})
-        
+
         # ---- STEP 2: Get NON-stationary ----
         message = f'\t\tLoc {loc_id} | Compute non-stationary GEV incl uncertainty'
-        ls_notes = print_and_append_notes(
-            message=message, ls_notes=ls_notes, print_msg=print_msg, logging=logging, logger=logger
-            )
+        ls_notes = print_and_append_notes(message=message, ls_notes=ls_notes, print_msg=print_msg)
     
         if n < 20:
             message = f'Loc {loc_id} | Warning: Non-stationary GEV needs ≥20 observations but has {n}, '
             message += f'skipping non-stationary GEV...'
-            ls_notes = print_and_append_notes(
-                message=message, ls_notes=ls_notes, print_msg=print_msg, logging=logging, logger=logger
-                )
-            return stationary
+            ls_notes = print_and_append_notes(message=message, ls_notes=ls_notes, print_msg=print_msg)
+            return {'stationary': stationary, 'nonstationary': None}, ls_notes
     
         nonstationary, ls_notes = fit_non_stationary_gev_incl_uncertainty(
             loc_id=loc_id, data=data, stationary=stationary, years=years, uncertainty=uncertainty_ns, 
-            ls_notes=ls_notes, print_msg=print_msg, logger=logger, logging=logging
+            ls_notes=ls_notes, print_msg=print_msg
             )
         pooled_gev.update({'nonstationary': nonstationary})
 
     except Exception as e:
         message = f"Failed to conduct GEV fitting due to error: {e}"
         ls_notes.append(message)
-        return None, ls_notes
+        return {'stationary': None, 'nonstationary': None}, ls_notes
     
     return pooled_gev, ls_notes
 
@@ -598,7 +567,7 @@ def likelihood_ratio_test(LL_s, LL_ns, df):
     else:
         p = 1 - chi2.cdf(delta_LL, df)
         if p< 0.05:
-            return delta_LL, p, '→ non-stationary model is significantly better → μ(t) trend matters'
+            return delta_LL, p, '→ non-stationary model is significantly better \n→ μ(t) trend matters'
         else:
             return delta_LL, p, '→ adding a trend doesn’t improve the fit'
 
@@ -736,40 +705,32 @@ def compute_all_return_levels(stationary, nonstationary, return_periods, ls_t_ev
 
 def _pooled_gev_per_single_location(
     loc_id,
-    dic_data_per_location,
+    location_data,
     return_periods,
     ls_t_eval,
-    location_labels,
-    logger,
+    location_info,
     min_years=10,
-    logging=True,
 ):
     """
     Run stationary / non-stationary GEV analysis for a single location.
     Designed for multiprocessing with joblib.
     """
 
-    df_prepared = dic_data_per_location[loc_id]
-
-    lon_loc = df_prepared.lon.unique()[0]
-    lat_loc = df_prepared.lat.unique()[0]
-
-    set_location_labels(location_labels)
-    location_info = _LOCATION_LABELS.get(
-        (round(lon_loc, 6), round(lat_loc, 6)),
-        "unknown location"
-    )
+    lon_loc = location_data.lon.unique()[0]
+    lat_loc = location_data.lat.unique()[0]
 
     logger.info(f'GEV analysis for location {loc_id} · {location_info}')
 
     # -------------------------------------------------------
     # Extract annual maxima
-    annual_max = extract_annual_maxima_at_location(
-        df_prepared, lon=lon_loc, lat=lat_loc
-    )
+    annual_max = extract_annual_maxima_at_location(location_data, lon=lon_loc, lat=lat_loc)
 
     if len(annual_max) < min_years:
         logger.info(
+            f'WARNING - not enough data (<{min_years}) '
+            f'for location {loc_id} (lon|lat · {lon_loc}|{lat_loc})'
+        )
+        print(
             f'WARNING - not enough data (<{min_years}) '
             f'for location {loc_id} (lon|lat · {lon_loc}|{lat_loc})'
         )
@@ -783,15 +744,30 @@ def _pooled_gev_per_single_location(
         loc_id=loc_id,
         data=data,
         years=years,
-        print_msg=True,
-        logging=logging,
-        logger=logger
+        print_msg=False,
     )
 
-    logger.info(f"\tLoc {loc_id} | → (Non-)Stationary GEV done (success {pooled_gev is not None})")
+    logger.info(
+        f"\tLoc {loc_id} | → Stationary GEV done (success {pooled_gev.get('stationary') is not None})"
+        f"\tLoc {loc_id} | → Non-stationary GEV done (success {pooled_gev.get('nonstationary') is not None})"
+        )
 
-    if pooled_gev is None:
-        return loc_id, None
+    stationary = pooled_gev.get("stationary")
+    nonstationary = pooled_gev.get("nonstationary")
+    if stationary is None or nonstationary is None:
+        logger.info(
+            f"\tLoc {loc_id} | → either stationary or non-stationary GEV missing; skipping location..."
+        )
+        result = {
+            'location_info': location_info,
+            'LatLon': (lat_loc, lon_loc),
+            'data': annual_max,
+            'stationary': pooled_gev['stationary'],
+            'nonstationary': pooled_gev['nonstationary'],
+            'model_comparison': None,
+            'return_levels': None
+        }
+        return loc_id, result
 
     # -------------------------------------------------------
     logger.info(f"\tLoc {loc_id} | Compare Models...")
@@ -1011,93 +987,4 @@ def prepare_for_regression(
         'nonstationary': (mu_ns, mu1_ns, mu0_ns, mu_ns_ci_lower, mu_ns_ci_upper),
         }
 
-
-def annual_stationary_trend(annual_df, factor_m_to_mm=1000):
-    """
-    Compute weighted linear trend of annual GEV location parameter (mu) with standardized years.
-    
-    Parameters:
-        annual_df : pd.DataFrame
-            Must contain columns ['year', 'location', 'n_obs']
-        factor_m_to_mm : float
-            Factor to multiply mu (default converts m -> mm)
-    
-    Returns:
-        dict with:
-            mu_trend : dict with mu0, mu1, mu0_se, mu1_se
-            mu_fit : np.array of fitted values (in mm)
-            mu_ci_upper, mu_ci_lower : np.array of 95% CI (in mm)
-            years_std : standardized years used
-    """
-    
-    x = annual_df['year'].values
-    y = annual_df['location'].values
-    weights = annual_df['n_obs'].values
-    
-    x_mean = np.mean(x)
-    x_std_val = np.std(x, ddof=1)
-    x_std = (x - x_mean) / x_std_val
-    
-    X = sm.add_constant(x_std)
-    
-    model = sm.WLS(y, X, weights=weights).fit()
-    
-    mu0_mm = model.params[0] * factor_m_to_mm
-    mu1_mm = model.params[1] * factor_m_to_mm
-    mu0_se_mm = model.bse[0] * factor_m_to_mm
-    mu1_se_mm = model.bse[1] * factor_m_to_mm
-    
-    mu_fit = mu0_mm + mu1_mm * x_std
-    
-    mu_ci_upper = mu_fit + 1.96 * mu1_se_mm * x_std
-    mu_ci_lower = mu_fit - 1.96 * mu1_se_mm * x_std
-    
-    return {
-        'mu_trend': {
-            'mu0': mu0_mm,
-            'mu1': mu1_mm,
-            'mu0_se': mu0_se_mm,
-            'mu1_se': mu1_se_mm
-        },
-        'mu_fit': mu_fit,
-        'mu_ci_upper': mu_ci_upper,
-        'mu_ci_lower': mu_ci_lower,
-        'years_std': x_std,
-        'x_mean': x_mean,
-        'x_std_val': x_std_val
-    }
-
-
-def prepare_for_regression(
-    annual_stationary, nonstationary, years_mean, years_std, hindcast_start, hindcast_end, z_percentile, factor_m_to_mm
-    ):
-    
-    years_ = np.arange(hindcast_start, hindcast_end+1)
-    years_autoscaled = (years_ - years_mean) / years_std
-
-    x_ans = annual_stationary['annual_mle'].year.values
-    y_ans = annual_stationary['annual_mle'].location.values*factor_m_to_mm
-    weights_ans = annual_stationary['annual_mle'].n_obs.values
-
-    # ------------ stationary -------------------
-    results_reg_annual_stat = annual_stationary_trend(annual_stationary['annual_mle'])
-
-    intercept_ans = results_reg_annual_stat['mu_trend']['mu0']
-    slope_ans = results_reg_annual_stat['mu_trend']['mu1']
-
-    # ------------ non-stationary -------------------
-    mu0_ns = nonstationary['params_hat'][0]*factor_m_to_mm
-    mu1_ns = nonstationary['params_hat'][1]*factor_m_to_mm
-
-    mu_ns = mu0_ns + mu1_ns * years_autoscaled
-
-    cov_mu = nonstationary['cov_mu'][:2, :2] * factor_m_to_mm**2
-    mu_var = cov_mu[0,0] + 2 * cov_mu[0,1] * years_autoscaled + cov_mu[1,1] * years_autoscaled**2  # shape (67,)
-    mu_ns_ci_upper = mu_ns + z_percentile * np.sqrt(mu_var)
-    mu_ns_ci_lower = mu_ns - z_percentile * np.sqrt(mu_var)
-    
-    return years_, {
-        'stationary': (x_ans, y_ans, weights_ans, results_reg_annual_stat, slope_ans, intercept_ans), 
-        'nonstationary': (mu_ns, mu1_ns, mu0_ns, mu_ns_ci_lower, mu_ns_ci_upper),
-        }
 

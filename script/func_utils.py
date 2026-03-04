@@ -1,4 +1,5 @@
 import logging
+import multiprocessing as mp
 import os
 import pickle
 import re
@@ -7,7 +8,7 @@ from datetime import datetime
 from glob import glob
 from logging import FileHandler, Logger
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 import arabic_reshaper
 import func_plotting as dbplt
@@ -16,7 +17,7 @@ from joblib import Parallel, delayed
 from numpy import isnan, unique
 from pandas import DataFrame, concat, read_parquet
 
-logger = logging.getLogger("gev_analysis")
+logger = logging.getLogger("mp_gev_analysis")
 
 
 def initialize_logger_v1(log_filename:str, log_dir:str="../logs"):
@@ -83,6 +84,62 @@ def initialize_logger_v2(dir_logs:str, log_name:str=None):
         fh = None
 
     return logger, fh, log_path
+
+
+def setup_main_logging(dir_log_file:Optional=None, logger_name="mp_gev_analysis"):
+    """
+    Call this ONCE in the main process.
+    Creates queue + listener + file handler.
+    """ 
+    if dir_log_file is None:
+        log_file = f"../logs/LOGS_GEVAnalysis_{datetime.now():%Y%m%d_%H%M%S}.log"
+    else:
+        log_file = dir_log_file
+        
+    log_queue = mp.Manager().Queue()
+
+    file_handler = logging.FileHandler(log_file)
+    formatter = logging.Formatter(
+        "%(asctime)s - %(processName)s - %(levelname)s - %(message)s"
+    )
+    file_handler.setFormatter(formatter)
+
+    listener = logging.handlers.QueueListener(log_queue, file_handler)
+    listener.start()
+
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.INFO)
+    logger.addHandler(logging.handlers.QueueHandler(log_queue))
+    logger.propagate = False
+
+    return logger, log_queue, listener, log_file
+
+
+def setup_worker_logging(log_queue, logger_name="my_app"):
+    """
+    Call this inside each worker process.
+    """
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.INFO)
+
+    # Avoid duplicate handlers if reinitialized
+    if not any(isinstance(h, logging.handlers.QueueHandler) for h in logger.handlers):
+        logger.addHandler(logging.handlers.QueueHandler(log_queue))
+        logger.propagate = False
+
+
+def worker_init(log_queue):
+    import logging
+    import logging.handlers
+
+    logger = logging.getLogger("mp_gev_analysis")
+    logger.setLevel(logging.INFO)
+
+    logger.handlers = []
+
+    qh = logging.handlers.QueueHandler(log_queue)
+    logger.addHandler(qh)
+    logger.propagate = False
 
 
 def sanitize_filename(s:str)->str:
@@ -649,17 +706,44 @@ def store_location_regression(fig, loc_id, LatLon, location_info, path_child_fol
     print(f"Regression analysis for location parameter stored as {filename}")
 
 
-def import_info_for_regression(dir_import):
-    with open(dir_import + '/stationary_per_year.pkl', "rb") as f:
-        results_annual_stat_all = pickle.load(f)
+def import_info_for_regression(dir_import: str) -> tuple[dict(), dict(), dict(), dict()]:
+    
+    file_annual_stat = dir_import + '/stationary_per_year.pkl'
+    if not os.path.isfile(file_annual_stat):
+        print(f'{file_annual_stat} does not exist in folder; skipping data import... ')
+        results_annual_stat_all = {}
+    else:
+        print(f'loading {file_annual_stat}')
+        with open(file_annual_stat, "rb") as f:
+            results_annual_stat_all = pickle.load(f)
+    
+    file_nonstat = dir_import + '/nonstationary.pkl'
+    if not os.path.isfile(file_nonstat):
+        print(f'{file_nonstat} does not exist in folder; skipping data import... ')
+        results_nonstat_all = {}
+    else:
+        print(f'loading {file_nonstat}')
+        with open(file_nonstat, "rb") as f:
+            results_nonstat_all = pickle.load(f)
+
+    file_loc_geo_info = dir_import + '/LatLon.pkl'
+    if not os.path.isfile(file_loc_geo_info):
+        print(f'{file_loc_geo_info} does not exist in folder; skipping data import... ')
+        location_geo_info = {}
+    else:
+        print(f'loading {file_loc_geo_info}')
+        with open(file_loc_geo_info, "rb") as f:
+            location_geo_info = pickle.load(f)
+
+    file_loc_info = dir_import + '/location_info.pkl'
+    if not os.path.isfile(file_loc_geo_info):
+        print(f'{file_loc_info} does not exist in folder; skipping data import... ')
+        location_point_info = {}
+    else:
+        print(f'loading {file_loc_info}')
+        with open(file_loc_info, "rb") as f:
+            location_point_info = pickle.load(f)
         
-    with open(dir_import + '/nonstationary.pkl', "rb") as f:
-        results_nonstat_all = pickle.load(f)
-        
-    with open(dir_import + '/LatLon.pkl', "rb") as f:
-        location_geo_info = pickle.load(f)
-        
-    with open(dir_import + '/location_info.pkl', "rb") as f:
-        location_point_info = pickle.load(f)
     return results_annual_stat_all, results_nonstat_all, location_geo_info, location_point_info
-    return results_annual_stat_all, results_nonstat_all, location_geo_info, location_point_info
+
+
