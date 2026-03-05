@@ -1410,6 +1410,7 @@ def plot_location_regression(
     markers_color: str = "#99E3DDFF",
     colors_reg: list = ['#CAA5C2FF',  '#005C55FF'],
     fontsize:int=12,
+    display_results:bool=False
     ):
 
     x_ans, y_ans, weights_ans, results_reg_annual_stat, slope_ans, intercept_ans = dic_trend['stationary']
@@ -1469,5 +1470,6 @@ def plot_location_regression(
     ax.set_xlabel('Year', fontsize=fontsize)
     ax.set_ylabel('GEV location parameter μ, mm', fontsize=fontsize)
     plt.tight_layout()
-
+    
+    plt.show() if display_results else plt.close(fig)
     return fig
