@@ -24,6 +24,7 @@ RETURN_PERIOD_EVAL = 50
 PLOT_PERIOD_EVOLUTION = ['10-year', '50-year', '100-year']
 T_EVAL_BASE = 1961
 LS_T_EVAL = 1961, 2026, 2050
+CONFIDENCE_INTERVAL = 0.9 # 90%
 
 DISPLAY_RESULTS = False
 N_JOBS = 4  
@@ -152,6 +153,7 @@ def main(args):
                     return_periods=RETURN_PERIODS,
                     ls_t_eval=LS_T_EVAL,
                     location_info=label,
+                    confidence_level_pc=CONFIDENCE_INTERVAL
                 )
                 for loc_id, location_data, label in batch
             )
@@ -192,6 +194,7 @@ def main(args):
                     plot_evolution=[int(i.split('-')[0]) for i in PLOT_PERIOD_EVOLUTION],
                     leg_comparison_x=0.075, leg_comparison_y=0.35, box_parameters_x=0.15, box_parameters_y= 0.95,
                     linestyle_trends = ['-', '--', '-.', ':', (0, (1, 1)), (0, (5, 10))],
+                    confidence_interval_pc=CONFIDENCE_INTERVAL
                 )                    
 
                 lat = str(result['LatLon'][0].round(3))

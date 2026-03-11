@@ -325,3 +325,18 @@ def create_summary_location_w_missing_data(
 
 
     return df_missing_location, df_valid, fig
+
+
+def crop_to_location_range(dic_data_per_location, start_location, end_location):
+    if start_location is not None or end_location is not None: 
+        dic_data_per_location = ut.select_allowed_locations(
+            dic_data_per_location=dic_data_per_location, 
+            start_loc=start_location, end_loc=end_location
+            )
+        print(f'Processing locations {start_location} to {end_location} ({len(dic_data_per_location)} total)')
+
+    else:
+        print(f'Processing all {len(dic_data_per_location)} locations')
+
+    print('Getting closest point available as location label for orientation. \nNote this is not the exact location...')
+    return dic_data_per_location

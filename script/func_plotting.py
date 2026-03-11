@@ -944,6 +944,7 @@ def plot_annual_max_with_trends_v2(
     annual_max:DataFrame, 
     return_levels:dict, 
     t_eval:int,
+    confidence_interval_pc:float,
     plot_evolution:list[int],
     linestyle_trends:list[str], 
     axes_color:str, 
@@ -980,7 +981,7 @@ def plot_annual_max_with_trends_v2(
                     [annual_max['year'].min(), annual_max['year'].max()],
                     return_levels_stat.loc[ix, 'lower']*factor_m_to_mm, 
                     return_levels_stat.loc[ix, 'upper']*factor_m_to_mm, 
-                    color=color_palette_s[k], alpha=0.15, label='95% CI (stationary)'
+                    color=color_palette_s[k], alpha=0.15, label=f'{confidence_interval_pc*100:.2f}% CI (stationary)'
                     )
             ax.axhline(
                 return_levels_stat.loc[ix, 'z_T']*factor_m_to_mm, 
@@ -1194,7 +1195,7 @@ def numerical_gradient(func, params, eps=1e-6):
 def delta_method_return_period(ns_model, z_ref, year_future):
     
     params = ns_model['params_hat']
-    cov = ns_model['cov_mu']
+    cov = ns_model['cov']
     years_mean = ns_model['years_mean']
     years_std = ns_model['years_std']
     
@@ -1276,12 +1277,52 @@ def prepare_return_level_from_reference(result_loc, t_eval_ex, ls_t_eval, return
     return ls_return_period_evolution_stat, ls_return_period_evolution_ns
 
 
+
+def plot_equivalent_return_period_evolution(
+    ax, T_ref, t_ref, loc_id, return_period_ns, color_ns='#008A80FF', axes_color='#333333', ci_level=90, fs=12
+    ):
+    
+    years = return_period_ns.index
+
+    ax.axhline(T_ref, color='gray', lw=1, ls='--', alpha=0.6, label=f"Original {T_ref}-year")
+
+    ax.plot(return_period_ns.return_period_mean, color=color_ns, label=f"return period (mean)")
+    ax.fill_between(
+        years, return_period_ns.return_period_lower.values, return_period_ns.return_period_upper.values, 
+        color=color_ns, alpha=0.3, lw=0, label=f"{ci_level}% confidence interval"
+        )
+
+    ax.legend(frameon=False, fontsize=fs*0.9)
+    ax.grid(True, alpha=0.3, color='lightgrey')
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+        
+    rest_lower = t_ref%10
+    rest_upper = years[-1]%10
+    ax.set_xlim(t_ref-rest_lower, years[-1]+(10-rest_upper))
+
+    ax.axhline(y=ax.get_ylim()[0], color=axes_color, linewidth=1.2, zorder=10)
+    ax.axvline(x=ax.get_xlim()[0], color=axes_color, linewidth=1.2, zorder=10)
+    ax.tick_params(axis='x', colors=axes_color)
+    ax.tick_params(axis='y', colors=axes_color)
+    
+    ax.set_xlabel('Year', fontsize=fs)
+    ax.set_ylabel(f'Return period (years)', fontsize=fs)
+    ax.set_title(
+        f'Return period of the {T_ref}-year event at {t_ref} at siteID {loc_id}', fontsize=fs*1.15
+    )
+
+    sns.despine(ax=ax)  
+    plt.tight_layout()
+
+
 def plot_pooled_analysis_v2(
     result: dict,
     site_id: int,
     t_eval_base:int,
     return_periods:list[int],
     plot_evolution:list[int],
+    confidence_interval_pc:float,
     save_path: str = None,
     return_period_base: int = 50,
     box_parameters_x: float = 0.45, 
@@ -1289,7 +1330,6 @@ def plot_pooled_analysis_v2(
     color_markers: str = '#99E3DDFF',
     bbox_color: str = '#F5F5F5FF',
     colors_models: list[str] = ['#B887ADFF', '#008A80FF'],
-    colors_return_period: list[str] = ['#B887ADFF', '#008A80FF', '#333333'],
     linestyle_trends: list = ['-', '--', '-.', ':', (0, (1, 1)), (0, (5, 10))],
     axes_color: str = '#333333',
     leg_comparison_x: float = 0.075,
@@ -1300,8 +1340,6 @@ def plot_pooled_analysis_v2(
     display_results: bool = False,
     plot_ci:bool=False,
     factor_m_to_mm=1000,
-    width_bar=0.35,
-    leg_position_rl=(0.5, 1.1),
     ):
     """Create comprehensive visualization."""
     location_info = result['location_info']
@@ -1311,6 +1349,7 @@ def plot_pooled_analysis_v2(
     annual_max = result['data']
     stat = result['stationary']
     nonstat = result['nonstationary']
+    return_period_ns = result['nonstationary']['return_period']
     comp = result['model_comparison']
     ls_t_eval = result['return_levels'].reset_index().t_eval.unique()
     
@@ -1339,7 +1378,7 @@ def plot_pooled_analysis_v2(
         ax=ax_top_left, annual_max=annual_max, return_levels=result['return_levels'], t_eval=ls_t_eval[0],
         plot_evolution=plot_evolution, linestyle_trends=linestyle_trends, axes_color=axes_color, plot_ci=plot_ci,
         colors_trends=color_palette, color_markers=color_markers, ms=6, fontsize=fontsize, factor_m_to_mm=factor_m_to_mm, 
-        )
+        confidence_interval_pc=confidence_interval_pc)
     
     # ----------------------------------------------------------------------------   
     # Plot TOP-RIGHT: GEV parameters summary
@@ -1350,15 +1389,21 @@ def plot_pooled_analysis_v2(
 
     # ----------------------------------------------------------------------------
     # Plot BOTTOM-LEFT: Return levels evolution
-    ls_return_period_evolution_stat, ls_return_period_evolution_ns = prepare_return_level_from_reference(
-    result_loc=result, t_eval_ex=t_eval_base, ls_t_eval=ls_t_eval, return_period_base=return_period_base
+    plot_equivalent_return_period_evolution(
+        ax=ax_bottom_left, T_ref=return_period_base, t_ref=t_eval_base, loc_id=site_id, axes_color=axes_color, 
+        return_period_ns=return_period_ns, color_ns=colors_models[1], ci_level=confidence_interval_pc*100, 
+        fs=fontsize*0.7
     )
-    plot_equivalent_return_period_bar_v1(
-        ls_return_period_evolution_stat=ls_return_period_evolution_stat,
-        ls_return_period_evolution_ns=ls_return_period_evolution_ns,
-        return_period_ex=return_period_base, t_eval_base=t_eval_base, colors=colors_return_period, width=width_bar,
-        axes_color='#333333', fontsize=fontsize, ax=ax_bottom_left, leg_position=leg_position_rl
-    )
+    
+    #ls_return_period_evolution_stat, ls_return_period_evolution_ns = prepare_return_level_from_reference(
+    #result_loc=result, t_eval_ex=t_eval_base, ls_t_eval=ls_t_eval, return_period_base=return_period_base
+    #)
+    #plot_equivalent_return_period_bar_v1(
+    #    ls_return_period_evolution_stat=ls_return_period_evolution_stat,
+    #    ls_return_period_evolution_ns=ls_return_period_evolution_ns,
+    #    return_period_ex=return_period_base, t_eval_base=t_eval_base, colors=colors_return_period, width=width_bar,
+    #    axes_color='#333333', fontsize=fontsize, ax=ax_bottom_left, leg_position=leg_position_rl
+    #)
     
     #plot_equivalent_return_period(
     #    ax=ax_bottom_left, ls_t_eval=ls_t_eval, return_period_ex=return_period_base, colors=colors_return_period, 

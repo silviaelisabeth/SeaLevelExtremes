@@ -745,5 +745,3 @@ def import_info_for_regression(dir_import: str) -> tuple[dict(), dict(), dict(),
             location_point_info = pickle.load(f)
         
     return results_annual_stat_all, results_nonstat_all, location_geo_info, location_point_info
-
-

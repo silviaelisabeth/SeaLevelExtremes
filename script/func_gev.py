@@ -8,7 +8,7 @@ from joblib import Parallel, delayed
 from pandas import DataFrame
 from scipy import linalg, stats
 from scipy.optimize import minimize
-from scipy.stats import chi2
+from scipy.stats import chi2, norm
 from statsmodels.tools.numdiff import approx_hess
 
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -185,27 +185,31 @@ def gev_bootstrap(data, B=500, seed=None):
     Returns stddev of shape, loc, scale (bootstrap estimates)【40†L19-L24】.
     """
     rng = np.random.default_rng(seed)
+
     boots = []
     for _ in range(B):
         sample = rng.choice(data, size=len(data), replace=True)
         try:
             result = fit_gev_mle(sample, init_shape=0.0)
-            boots.append((result["shape"], result["location"], result["scale"]))
+            boots.append((result["shape"], result["location"], result["scale"], result['n_obs']))
         except Exception:
             continue
     boots = np.array(boots)
     
     if boots.size == 0:
         raise RuntimeError("Bootstrap failed: no successful fits.")
-    
+
     shape_std = np.std(boots[:,0], ddof=1)
     loc_std   = np.std(boots[:,1], ddof=1)
     scale_std = np.std(boots[:,2], ddof=1)
-    
-    return {"shape_std": shape_std, "location_std": loc_std, "scale_std": scale_std}
+    n_obs = np.std(boots[:,3], ddof=1)
+
+    return {"shape_std": shape_std, "location_std": loc_std, "scale_std": scale_std, "n_obs": n_obs}
 
 
-def compute_cov_matrix_v1(gev_params: dict, data: np.ndarray, is_nonstationary:bool, years: np.ndarray = None) -> np.ndarray:
+def compute_cov_matrix_v1(
+    gev_params: dict, data: np.ndarray, is_nonstationary:bool, years: np.ndarray = None
+    ) -> np.ndarray:
     """
     Compute the covariance matrix of fitted GEV parameters using a numerically stable Hessian.
     
@@ -303,6 +307,9 @@ def compute_cov_matrix_v1(gev_params: dict, data: np.ndarray, is_nonstationary:b
 
 
 def fit_stationary_gev_incl_uncertainty(loc_id, data, B, seed, ls_notes, print_msg):
+    cov = None
+    std_errors = None
+
     stationary = fit_gev_mle(data, init_shape=0.0)
     ls_notes = print_and_append_notes(
         message=f'\t\tLoc {loc_id} | MLE results: {stationary}', ls_notes=ls_notes, print_msg=print_msg
@@ -317,11 +324,13 @@ def fit_stationary_gev_incl_uncertainty(loc_id, data, B, seed, ls_notes, print_m
             message=f'\nLoc {loc_id} | Hessian invalid or singular; switching to bootstrap for CIs.',
             ls_notes=ls_notes, print_msg=print_msg
         )
-        
+
         bs = gev_bootstrap(data, B=B, seed=seed)
+
         stationary["shape_std"] = bs["shape_std"]
         stationary["location_std"] = bs["location_std"]
         stationary["scale_std"] = bs["scale_std"]
+
     else:
         cov = np.linalg.inv(H)
         std_errors = np.sqrt(np.diag(cov))
@@ -332,13 +341,15 @@ def fit_stationary_gev_incl_uncertainty(loc_id, data, B, seed, ls_notes, print_m
         stationary['std_errors'] = std_errors
 
     message = (
-        f'\t\tLoc {loc_id} | Stationary GEV fit (n={stationary['n_obs']}):'
-        + f'\n\t\t\t  shape (ξ) = {stationary['shape']:.4f} ± {stationary['shape_std']:.4f}'
-        + f'\n\t\t\t  location = {stationary['location']:.4f} ± {stationary['location_std']:.4f}'
-        + f'\n\t\t\t  scale    = {stationary['scale']:.4f} ± {stationary['scale_std']:.4f}'
-        + f'\n\t\t\t  covariance = {cov}'
-        + f'\n\t\t\t  standard errors = {std_errors}'
-        )
+        f'\t\tLoc {loc_id} | Stationary GEV fit (n={stationary["n_obs"]}):'
+        + f'\n\t\t\t  shape (ξ) = {stationary["shape"]:.4f} ± {stationary["shape_std"]:.4f}'
+        + f'\n\t\t\t  location = {stationary["location"]:.4f} ± {stationary["location_std"]:.4f}'
+        + f'\n\t\t\t  scale    = {stationary["scale"]:.4f} ± {stationary["scale_std"]:.4f}'
+    )
+    if cov is not None:
+        message += f"\n\t\t\t  covariance = {cov}"
+        message += f"\n\t\t\t  standard errors = {std_errors}"
+
     ls_notes = print_and_append_notes(message=message, ls_notes=ls_notes, print_msg=print_msg)
     return stationary, ls_notes
     
@@ -407,7 +418,7 @@ def fit_non_stationary_gev_incl_uncertainty(
 
         if cov_ns is not None:
 
-            nonstationary['cov_mu'] = cov_ns
+            nonstationary['cov'] = cov_ns
             try:
                 diag_vals = np.diag(cov_ns)
 
@@ -539,7 +550,7 @@ def fit_pooled_gev_with_uncertainty(
         # ---- STEP 2: Get NON-stationary ----
         message = f'\t\tLoc {loc_id} | Compute non-stationary GEV incl uncertainty'
         ls_notes = print_and_append_notes(message=message, ls_notes=ls_notes, print_msg=print_msg)
-    
+
         if n < 20:
             message = f'Loc {loc_id} | Warning: Non-stationary GEV needs ≥20 observations but has {n}, '
             message += f'skipping non-stationary GEV...'
@@ -633,7 +644,7 @@ def compare_stationary_nonstationary(stationary, nonstationary, data_loc):
         })
 
 
-def compute_return_levels_delta(stationary, nonstationary, T, t_eval):
+def compute_return_levels_delta(stationary, nonstationary, T, t_eval, confidence_level_pc:float = 0.9):
     t_eval = np.asarray(t_eval)
     
     # ---- Stationary ----
@@ -652,12 +663,13 @@ def compute_return_levels_delta(stationary, nonstationary, T, t_eval):
         grad = np.array([1, f/xi, -sigma/xi**2 * f + sigma/xi * df_dxi])
     
     var_zT = grad @ cov_theta @ grad
-    ci_lower = z_T - 1.96 * np.sqrt(var_zT)
-    ci_upper = z_T + 1.96 * np.sqrt(var_zT)
+    z = norm.ppf(1 - (1-confidence_level_pc)/2) 
+    ci_lower = z_T - z * np.sqrt(var_zT)
+    ci_upper = z_T + z * np.sqrt(var_zT)
     
     # ---- Non-stationary ----
     mu0, mu1, sigma, xi = nonstationary['params_hat']
-    cov_theta_ns = nonstationary['cov_mu']  # 4x4 covariance matrix for (mu0, mu1, sigma, xi)
+    cov_theta_ns = nonstationary['cov']  # 4x4 covariance matrix for (mu0, mu1, sigma, xi)
     years_mean = nonstationary['years_mean']
     years_std = nonstationary['years_std']
     
@@ -682,25 +694,227 @@ def compute_return_levels_delta(stationary, nonstationary, T, t_eval):
         'nonstationary': {'z_T': z_T_ns, 'lower': ci_lower_ns, 'upper': ci_upper_ns}
     }
 
+
+def compute_return_levels_delta_stat(stationary, T, confidence_level_pc:float = 0.9):
+    mu = stationary['location']
+    sigma = stationary['scale']
+    xi = stationary['shape']
+    cov_theta = stationary['cov']  # 3x3 covariance matrix for (mu, sigma, xi)
     
-def compute_all_return_levels(stationary, nonstationary, return_periods, ls_t_eval):
+    if abs(xi) < 1e-10:
+        z_T = mu + sigma * -np.log(-np.log(1 - 1/T))
+        grad = np.array([1, -np.log(-np.log(1 - 1/T)), 0])
+    else:
+        f = (-np.log(1 - 1/T))**(-xi) - 1
+        z_T = mu + sigma/xi * f
+        df_dxi = -(-np.log(1 - 1/T))**(-xi) * np.log(-np.log(1 - 1/T))
+        grad = np.array([1, f/xi, -sigma/xi**2 * f + sigma/xi * df_dxi])
+    
+    var_zT = grad @ cov_theta @ grad
+    z = norm.ppf(1 - (1-confidence_level_pc)/2) 
+    ci_lower = z_T - z * np.sqrt(var_zT)
+    ci_upper = z_T + z * np.sqrt(var_zT)
+    
+    return {'z_T': z_T, 'lower': ci_lower, 'upper': ci_upper}
+
+
+def compute_return_levels_delta_nonstat(nonstationary, T, t_eval, confidence_level_pc:float = 0.9):
+    t_eval = np.asarray(t_eval)
+    
+    mu0, mu1, sigma, xi = nonstationary['params_hat']
+    cov_theta_ns = nonstationary['cov']  # 4x4 covariance matrix for (mu0, mu1, sigma, xi)
+    years_mean = nonstationary['years_mean']
+    years_std = nonstationary['years_std']
+    
+    t_scaled = (t_eval - years_mean) / years_std
+    mu_t = mu0 + mu1 * t_scaled
+    
+    if abs(xi) < 1e-10:
+        z_T_ns = mu_t + sigma * -np.log(-np.log(1 - 1/T))
+        grad_ns = np.array([1, t_scaled, -np.log(-np.log(1 - 1/T)), 0])
+    else:
+        f = (-np.log(1 - 1/T))**(-xi) - 1
+        z_T_ns = mu_t + sigma/xi * f
+        df_dxi = -(-np.log(1 - 1/T))**(-xi) * np.log(-np.log(1 - 1/T))
+        grad_ns = np.array([1, t_scaled, f/xi, -sigma/xi**2*f + sigma/xi*df_dxi])
+    
+    var_zT_ns = grad_ns @ cov_theta_ns @ grad_ns
+    z = norm.ppf(1 - (1-confidence_level_pc)/2) 
+    ci_lower_ns = z_T_ns - z * np.sqrt(var_zT_ns)
+    ci_upper_ns = z_T_ns + z * np.sqrt(var_zT_ns)
+    
+    return {'z_T': z_T_ns, 'lower': ci_lower_ns, 'upper': ci_upper_ns}
+
+
+def return_levels_bootstrap_stationary(stationary, T, confidence_level=0.9):
+    mu = stationary['location']
+    sigma = stationary['scale']
+    xi = stationary['shape']
+
+    y = -np.log(1 - 1/T)
+
+    zT = np.where(
+        np.abs(xi) < 1e-10,
+        mu + sigma * -np.log(y),
+        mu + sigma/xi * (y**(-xi) - 1)
+    )
+
+    alpha = 1 - confidence_level
+
+    return {
+        "z_T": np.mean(zT),
+        "lower": np.quantile(zT, alpha/2),
+        "upper": np.quantile(zT, 1-alpha/2)
+    }
+
+
+def return_levels_bootstrap_nonstationary(nonstationary, T, t_eval, confidence_level=0.9):
+    years_mean = nonstationary['years_mean']
+    years_std = nonstationary['years_std']
+    
+    mu0, mu1, sigma, xi = nonstationary['params_hat']
+
+    t_eval = np.asarray(t_eval)
+    t_scaled = (t_eval - years_mean) / years_std
+
+    y = -np.log(1 - 1/T)
+    
+    B = len(mu0)
+    nt = len(t_eval)
+    zT = np.zeros((B, nt))
+
+    for i in range(B):
+        mu_t = mu0[i] + mu1[i] * t_scaled
+        if abs(xi[i]) < 1e-10:
+            zT[i,:] = mu_t + sigma[i] * -np.log(y)
+        else:
+            zT[i,:] = mu_t + sigma[i]/xi[i] * (y**(-xi[i]) - 1)
+
+    alpha = 1 - confidence_level
+
+    return {
+        "z_T": np.mean(zT, axis=0),
+        "lower": np.quantile(zT, alpha/2, axis=0),
+        "upper": np.quantile(zT, 1-alpha/2, axis=0)
+    }
+
+
+def compute_all_return_levels(stationary, nonstationary, return_periods, ls_t_eval, confidence_level_pc:float=0.9):
     dic_rl = {}
     for T in return_periods:
         dic_return_levels_t_eval = dict()
         for t_eval in ls_t_eval:
-            rl_t = compute_return_levels_delta(
-            stationary=stationary, nonstationary=nonstationary, T=T, t_eval=t_eval
-            )
-            dic_return_levels_t_eval[t_eval] = rl_t
+            if 'cov' in stationary.keys():
+                rl_t_stat = compute_return_levels_delta_stat(
+                    stationary=stationary, T=T, confidence_level_pc=confidence_level_pc
+                )
+            else:
+                rl_t_stat = return_levels_bootstrap_stationary(
+                    stationary=stationary, T=T, confidence_level=confidence_level_pc
+                    )
+
+            if 'cov' in nonstationary.keys():
+                rl_t_ns = compute_return_levels_delta_nonstat(
+                    nonstationary=nonstationary, T=T, t_eval=t_eval, confidence_level_pc=confidence_level_pc
+                )
+            else:
+                rl_t_ns = return_levels_bootstrap_nonstationary(
+                    nonstationary=nonstationary, T=T, t_eval=t_eval, confidence_level=confidence_level_pc
+                    )
+
+            dic_return_levels_t_eval[t_eval] = {'stationary': rl_t_stat, 'nonstationary': rl_t_ns}
         dic_rl[T] = dic_return_levels_t_eval
         
     df_rl = DataFrame([
-        {**dic_rl[T][t_eval][key], 't_eval': t_eval, 'return_period': T, 'model': key}
-        for T in return_periods
-        for t_eval in dic_rl[T].keys()
-        for key in ['stationary', 'nonstationary']
-    ])
+            {**dic_rl[T][t_eval][key], 't_eval': t_eval, 'return_period': T, 'model': key}
+            for T in return_periods
+            for t_eval in dic_rl[T].keys()
+            for key in ['stationary', 'nonstationary']
+        ])
     return df_rl
+
+
+def safe_return_level(T, mu, sigma, xi):
+    """
+    Compute GEV return level for return period T (years).
+    Handles xi ≈ 0 and prevents log(0) errors.
+    """
+    T = np.array(T, dtype=float)
+    T = np.maximum(T, 1 + 1e-10)  # avoid T <= 1
+
+    if abs(xi) < 1e-6:  # Gumbel limit
+        return mu - sigma * np.log(-np.log(1 - 1/T))
+    else:
+        u = -np.log(1 - 1/T)
+        u = np.maximum(u, 1e-10)
+        return mu + sigma/xi * (u**(-xi) - 1)
+
+
+def safe_return_period(z, mu, sigma, xi):
+    """
+    Compute return period corresponding to level z.
+    Return period >= 1 year (annual maxima assumption).
+    """
+    term = 1 + xi*(z - mu)/sigma
+
+    term = np.maximum(term, 1e-10)
+    F = np.exp(-term**(-1/xi))
+    F = np.clip(F, 0, 1 - 1e-10)  
+    T = 1/(1 - F)
+    T = np.maximum(T, 1.0)  
+    return T
+
+
+def mu_year(year, params, mean_year, std_year):
+    """
+    Compute location parameter μ(t) for standardized time.
+    params = [mu0, mu1, sigma, xi]
+    """
+    mu0, mu1, _, _ = params
+    t_std = (year - mean_year) / std_year
+    return mu0 + mu1 * t_std
+
+
+def rp_evolution(params, years, mean_year, std_year, ref_year=1961, T_ref=50):
+    """
+    Compute evolution of return period of the reference T_ref surge.
+    Returns RP array and 1961 return level.
+    """
+    mu0, mu1, sigma, xi = params
+
+    mu_ref = mu_year(ref_year, params, mean_year, std_year)
+
+    # 50-year return level in reference year
+    z_ref = safe_return_level(T_ref, mu_ref, sigma, xi)
+
+    # vectorized computation for all years
+    mu_all = mu_year(years, params, mean_year, std_year)
+    rp_all = safe_return_period(z_ref, mu_all, sigma, xi)
+
+    return rp_all, z_ref
+
+
+def rp_uncertainty_monte_carlo(params, cov, years, mean_year, std_year, nsim=5000, ref_year=1961, T_ref=50):
+    """
+    Monte Carlo sampling from parameter covariance to get RP uncertainty.
+    Returns mean, 5th percentile, 95th percentile of RP evolution.
+    """
+    samples = np.random.multivariate_normal(params, cov, nsim)
+
+    sims = []
+    for p in samples:
+        rp, _ = rp_evolution(p, years, mean_year, std_year, ref_year, T_ref)
+        sims.append(rp)
+
+    sims = np.array(sims)
+    mean = sims.mean(axis=0)
+    low = np.percentile(sims, 5, axis=0)
+    high = np.percentile(sims, 95, axis=0)
+
+    return DataFrame(
+        [mean, low, high], 
+        columns=years, index=['return_period_mean', 'return_period_lower', 'return_period_upper']
+        ).T
 
 
 def _pooled_gev_per_single_location(
@@ -709,7 +923,10 @@ def _pooled_gev_per_single_location(
     return_periods,
     ls_t_eval,
     location_info,
+    ref_year_rp=1961, 
+    T_ref_rp=50,
     min_years=10,
+    confidence_level_pc:float=0.9
 ):
     """
     Run stationary / non-stationary GEV analysis for a single location.
@@ -783,9 +1000,21 @@ def _pooled_gev_per_single_location(
         pooled_gev['stationary'],
         pooled_gev['nonstationary'],
         return_periods,
-        ls_t_eval
+        ls_t_eval,
+        confidence_level_pc
     )
+    
+    # -------------------------------------------------------
+    logger.info(f"\tLoc {loc_id} | Compute Return Period of the {T_ref_rp}-year event at {ref_year_rp}...")
+    rp_ns = rp_uncertainty_monte_carlo(
+        params=pooled_gev['nonstationary']['params_hat'], cov=pooled_gev['nonstationary']['cov'], years=years, 
+        mean_year=pooled_gev['nonstationary']['years_mean'], std_year=pooled_gev['nonstationary']['years_std'],
+        ref_year=ref_year_rp, T_ref=T_ref_rp
+        )
+    pooled_gev['nonstationary'].update({'return_period': rp_ns})
 
+
+    # -------------------------------------------------------
     result = {
         'location_info': location_info,
         'LatLon': (lat_loc, lon_loc),
@@ -793,7 +1022,7 @@ def _pooled_gev_per_single_location(
         'stationary': pooled_gev['stationary'],
         'nonstationary': pooled_gev['nonstationary'],
         'model_comparison': comparison,
-        'return_levels': df_all_return_levels
+        'return_levels': df_all_return_levels,
     }
 
     return loc_id, result
@@ -979,8 +1208,8 @@ def prepare_for_regression(
 
     mu_ns = mu0_ns + mu1_ns * years_autoscaled
 
-    cov_mu = nonstationary['cov_mu'][:2, :2] * factor_m_to_mm**2
-    mu_var = cov_mu[0,0] + 2 * cov_mu[0,1] * years_autoscaled + cov_mu[1,1] * years_autoscaled**2  # shape (67,)
+    cov = nonstationary['cov'][:2, :2] * factor_m_to_mm**2
+    mu_var = cov[0,0] + 2 * cov[0,1] * years_autoscaled + cov[1,1] * years_autoscaled**2  # shape (67,)
     mu_ns_ci_upper = mu_ns + z_percentile * np.sqrt(mu_var)
     mu_ns_ci_lower = mu_ns - z_percentile * np.sqrt(mu_var)
     
