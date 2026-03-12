@@ -153,7 +153,9 @@ def main(args):
                     return_periods=RETURN_PERIODS,
                     ls_t_eval=LS_T_EVAL,
                     location_info=label,
-                    confidence_level_pc=CONFIDENCE_INTERVAL
+                    confidence_level_pc=CONFIDENCE_INTERVAL,
+                    ref_year_rp=T_EVAL_BASE, 
+                    T_ref_rp=RETURN_PERIOD_EVAL,
                 )
                 for loc_id, location_data, label in batch
             )
@@ -190,12 +192,12 @@ def main(args):
                 logger.info('Loc %s | plotting analysis overview', loc_id)
                 fig = dbplt.plot_pooled_analysis_v2(
                     result=result, site_id=loc_id, t_eval_base=T_EVAL_BASE, return_period_base=RETURN_PERIOD_EVAL,
-                    return_periods=RETURN_PERIODS, display_results=DISPLAY_RESULTS, fontsize=12, figsize=(15, 7.5),
+                    return_periods=RETURN_PERIODS, display_results=DISPLAY_RESULTS,  fontsize=12, figsize=(15, 7.5),
                     plot_evolution=[int(i.split('-')[0]) for i in PLOT_PERIOD_EVOLUTION],
-                    leg_comparison_x=0.075, leg_comparison_y=0.35, box_parameters_x=0.15, box_parameters_y= 0.95,
+                    leg_comparison_x=0.075, leg_comparison_y=0.45, box_parameters_x=0.35,  box_parameters_y= 0.95,
                     linestyle_trends = ['-', '--', '-.', ':', (0, (1, 1)), (0, (5, 10))],
-                    confidence_interval_pc=CONFIDENCE_INTERVAL
-                )                    
+                    confidence_interval_pc=CONFIDENCE_INTERVAL,
+                )                  
 
                 lat = str(result['LatLon'][0].round(3))
                 lon = str(result['LatLon'][1].round(3))

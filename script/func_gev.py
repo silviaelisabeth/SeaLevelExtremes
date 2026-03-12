@@ -850,21 +850,38 @@ def safe_return_level(T, mu, sigma, xi):
         return mu + sigma/xi * (u**(-xi) - 1)
 
 
-def safe_return_period(z, mu, sigma, xi):
+def safe_return_period(z, mu, sigma, xi, max_T=1e4):
     """
     Compute return period corresponding to level z.
     Return period >= 1 year (annual maxima assumption).
     """
     term = 1 + xi*(z - mu)/sigma
-
     term = np.maximum(term, 1e-10)
+
     F = np.exp(-term**(-1/xi))
     F = np.clip(F, 0, 1 - 1e-10)  
+    
     T = 1/(1 - F)
     T = np.maximum(T, 1.0)  
-    return T
+    
+    return np.minimum(T, max_T)
 
 
+def filter_unstable_samples(samples):
+    filtered = []
+    for p in samples:
+        _, _, sigma, xi = p
+
+        if sigma <= 0:
+            continue
+        if abs(xi) > 0.5:      # avoid unrealistic heavy tails
+            continue
+
+        filtered.append(p)
+
+    return np.array(filtered)
+
+    
 def mu_year(year, params, mean_year, std_year):
     """
     Compute location parameter μ(t) for standardized time.
@@ -875,12 +892,12 @@ def mu_year(year, params, mean_year, std_year):
     return mu0 + mu1 * t_std
 
 
-def rp_evolution(params, years, mean_year, std_year, ref_year=1961, T_ref=50):
+def rp_evolution(params, years, mean_year, std_year, ref_year=1961, T_ref=50, max_T=1e4):
     """
     Compute evolution of return period of the reference T_ref surge.
     Returns RP array and 1961 return level.
     """
-    mu0, mu1, sigma, xi = params
+    _, _, sigma, xi = params
 
     mu_ref = mu_year(ref_year, params, mean_year, std_year)
 
@@ -889,24 +906,36 @@ def rp_evolution(params, years, mean_year, std_year, ref_year=1961, T_ref=50):
 
     # vectorized computation for all years
     mu_all = mu_year(years, params, mean_year, std_year)
-    rp_all = safe_return_period(z_ref, mu_all, sigma, xi)
+    rp_all = safe_return_period(z_ref, mu_all, sigma, xi, max_T=max_T)
 
     return rp_all, z_ref
 
 
-def rp_uncertainty_monte_carlo(params, cov, years, mean_year, std_year, nsim=5000, ref_year=1961, T_ref=50):
+def rp_uncertainty_monte_carlo(params, cov, years, mean_year, std_year, ref_year, T_ref, nsim=5000, cap_rp=1e4):
     """
     Monte Carlo sampling from parameter covariance to get RP uncertainty.
     Returns mean, 5th percentile, 95th percentile of RP evolution.
     """
-    samples = np.random.multivariate_normal(params, cov, nsim)
-
+    samples_ = np.random.multivariate_normal(params, cov, nsim)
+    samples = filter_unstable_samples(samples_)
+    
     sims = []
     for p in samples:
-        rp, _ = rp_evolution(p, years, mean_year, std_year, ref_year, T_ref)
+        _, _, sigma, xi = p
+        if sigma <= 0 or abs(xi) > 0.5:
+            continue
+        
+        rp, _ = rp_evolution(p, years, mean_year, std_year, ref_year, T_ref, cap_rp)
+        rp = np.minimum(rp, cap_rp)
+        
         sims.append(rp)
 
     sims = np.array(sims)
+    
+    # remove extreme simulations
+    threshold = np.percentile(sims, 99.5)
+    sims[sims > threshold] = np.nan
+
     mean = sims.mean(axis=0)
     low = np.percentile(sims, 5, axis=0)
     high = np.percentile(sims, 95, axis=0)
@@ -917,6 +946,68 @@ def rp_uncertainty_monte_carlo(params, cov, years, mean_year, std_year, nsim=500
         ).T
 
 
+def rp_uncertainty_monte_carlo_fast(params, cov, years, mean_year, std_year, ref_year, T_ref, nsim=5000, max_T=1e4):
+
+    samples = np.random.multivariate_normal(params, cov, nsim)
+
+    mu0_s = samples[:,0]
+    mu1_s = samples[:,1]
+    sigma_s = samples[:,2]
+    xi_s = samples[:,3]
+
+    # ---- filter unrealistic samples ----
+    mask = (sigma_s > 0) & (np.abs(xi_s) < 0.5)
+    mu0_s, mu1_s, sigma_s, xi_s = mu0_s[mask], mu1_s[mask], sigma_s[mask], xi_s[mask]
+
+    ns = len(mu0_s)
+
+    # ---- reference location parameter ----
+    t_ref = (ref_year - mean_year) / std_year
+    mu_ref = mu0_s + mu1_s * t_ref
+
+    # ---- reference return level ----
+    u = -np.log(1 - 1/T_ref)
+
+    small_xi = np.abs(xi_s) < 1e-6
+
+    z_ref = np.empty(ns)
+
+    # Gumbel case
+    z_ref[small_xi] = mu_ref[small_xi] - sigma_s[small_xi] * np.log(-np.log(1 - 1/T_ref))
+
+    # general case
+    z_ref[~small_xi] = (
+        mu_ref[~small_xi]
+        + sigma_s[~small_xi]/xi_s[~small_xi]
+        * (u**(-xi_s[~small_xi]) - 1)
+    )
+
+    # ---- compute μ(t) for all years ----
+    t = (years - mean_year) / std_year
+    mu_all = mu0_s[:,None] + mu1_s[:,None] * t[None,:]
+
+    # ---- return periods ----
+    term = 1 + xi_s[:,None] * (z_ref[:,None] - mu_all) / sigma_s[:,None]
+    term = np.maximum(term, 1e-10)
+
+    F = np.exp(-term**(-1/xi_s[:,None]))
+    F = np.clip(F, 0, 1-1e-10)
+
+    rp = 1/(1-F)
+    rp = np.clip(rp, 1, max_T)
+
+    # ---- statistics ----
+    mean = np.mean(rp, axis=0)
+    low = np.percentile(rp, 5, axis=0)
+    high = np.percentile(rp, 95, axis=0)
+
+    return DataFrame({
+        "return_period_mean": mean,
+        "return_period_lower": low,
+        "return_period_upper": high
+    }, index=years)
+    
+    
 def _pooled_gev_per_single_location(
     loc_id,
     location_data,
@@ -987,7 +1078,7 @@ def _pooled_gev_per_single_location(
         return loc_id, result
 
     # -------------------------------------------------------
-    logger.info(f"\tLoc {loc_id} | Compare Models...")
+    logger.info("\tLoc %s | Compare Models...", loc_id)
     comparison = compare_stationary_nonstationary(
         pooled_gev['stationary'],
         pooled_gev['nonstationary'],
@@ -995,7 +1086,7 @@ def _pooled_gev_per_single_location(
     )
 
     # -------------------------------------------------------
-    logger.info(f"\tLoc {loc_id} | Compute Return Levels...")
+    logger.info("\tLoc %s | Compute Return Levels...", loc_id)
     df_all_return_levels = compute_all_return_levels(
         pooled_gev['stationary'],
         pooled_gev['nonstationary'],
@@ -1006,12 +1097,18 @@ def _pooled_gev_per_single_location(
     
     # -------------------------------------------------------
     logger.info(f"\tLoc {loc_id} | Compute Return Period of the {T_ref_rp}-year event at {ref_year_rp}...")
-    rp_ns = rp_uncertainty_monte_carlo(
+    rp_ns = rp_uncertainty_monte_carlo_fast(
         params=pooled_gev['nonstationary']['params_hat'], cov=pooled_gev['nonstationary']['cov'], years=years, 
         mean_year=pooled_gev['nonstationary']['years_mean'], std_year=pooled_gev['nonstationary']['years_std'],
         ref_year=ref_year_rp, T_ref=T_ref_rp
         )
     pooled_gev['nonstationary'].update({'return_period': rp_ns})
+    logger.info(
+        f'\t\tLoc {loc_id} | Return Period Overview',
+        f'\n\t\t mean: {rp_ns.min().return_period_mean:.2f} – {rp_ns.max().return_period_mean:.2f} years',
+        f'\n\t\t lower: {rp_ns.min().return_period_lower:.2f} – {rp_ns.max().return_period_lower:.2f} years',
+        f'\n\t\t upper: {rp_ns.min().return_period_upper:.2f} – {rp_ns.max().return_period_upper:.2f} years'
+        )
 
 
     # -------------------------------------------------------
