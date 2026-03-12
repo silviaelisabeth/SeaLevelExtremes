@@ -1349,7 +1349,7 @@ def plot_pooled_analysis_v2(
     annual_max = result['data']
     stat = result['stationary']
     nonstat = result['nonstationary']
-    return_period_ns = result['nonstationary']['return_period']
+    return_period_ns = result['nonstationary'].get('return_period')
     comp = result['model_comparison']
     ls_t_eval = result['return_levels'].reset_index().t_eval.unique()
     
@@ -1394,7 +1394,7 @@ def plot_pooled_analysis_v2(
         return_period_ns=return_period_ns, color_ns=colors_models[1], ci_level=confidence_interval_pc*100, 
         fs=fontsize*0.7
     )
-    
+        
     #ls_return_period_evolution_stat, ls_return_period_evolution_ns = prepare_return_level_from_reference(
     #result_loc=result, t_eval_ex=t_eval_base, ls_t_eval=ls_t_eval, return_period_base=return_period_base
     #)

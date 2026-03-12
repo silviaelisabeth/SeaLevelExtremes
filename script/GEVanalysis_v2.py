@@ -147,7 +147,7 @@ def main(args):
                 initializer=ut.worker_init,
                 initargs=(log_queue,)
                 )(
-                delayed(gev._pooled_gev_per_single_location)(
+                delayed(gev.pooled_gev_per_single_location)(
                     loc_id=loc_id,
                     location_data=location_data,
                     return_periods=RETURN_PERIODS,
@@ -155,7 +155,7 @@ def main(args):
                     location_info=label,
                     confidence_level_pc=CONFIDENCE_INTERVAL,
                     ref_year_rp=T_EVAL_BASE, 
-                    T_ref_rp=RETURN_PERIOD_EVAL,
+                    t_ref_rp=RETURN_PERIOD_EVAL,
                 )
                 for loc_id, location_data, label in batch
             )
