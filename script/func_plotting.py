@@ -38,7 +38,6 @@ def create_map_location_missing_valid_data(
     df_valid:DataFrame,
     radius_marker_m:int=3500, 
     color_missing:str='#980019FF',
-    color_valid:str='#7BAA80FF',
     dir_export:str='../output/exploration',
     store_map:bool=False,
     ) -> None:
@@ -49,7 +48,6 @@ def create_map_location_missing_valid_data(
         df_valid (DataFrame): _description_
         radius_marker_m (int, optional): _description_. Defaults to 3500.
         color_missing (str, optional): _description_. Defaults to '#980019FF'.
-        color_valid (str, optional): _description_. Defaults to '#7BAA80FF'.
         dir_export (str, optional): _description_. Defaults to '../output/exploration'.
         store_map (bool, optional): _description_. Defaults to False.
 
@@ -58,7 +56,8 @@ def create_map_location_missing_valid_data(
     """
 
     missing_locations['info'] = "Missing data (n_obs = 0)"
-
+    colors_valid = df_valid.colors.to_list()
+    
     layer_missing = pdk.Layer(
         "ScatterplotLayer", data=missing_locations, get_position='[lon, lat]', get_radius=radius_marker_m,
         radius_scale=1, radius_min_pixels=1, radius_max_pixels=7, get_fill_color=ut.hex_to_rgba(color_missing),
@@ -67,7 +66,7 @@ def create_map_location_missing_valid_data(
 
     layer_valid = pdk.Layer(
         "ScatterplotLayer", data=df_valid, get_position='[lon, lat]', get_radius=radius_marker_m, radius_scale=1,
-        radius_min_pixels=1, radius_max_pixels=7, get_fill_color=ut.hex_to_rgba(color_valid), pickable=True,
+        radius_min_pixels=1, radius_max_pixels=7, get_fill_color=colors_valid, pickable=True,
     )
 
     view_state = pdk.ViewState(
@@ -1450,7 +1449,7 @@ def plot_pooled_analysis_v2(
 
 
 def plot_location_regression(
-    loc_id, years_, dic_trend, results_annual_stat_location, 
+    loc_id, years_, dic_trend, results_annual_stat_location, confidence_level_pc:float,
     axes_color: str = '#333333',
     markers_color: str = "#99E3DDFF",
     colors_reg: list = ['#CAA5C2FF',  '#005C55FF'],
@@ -1479,7 +1478,7 @@ def plot_location_regression(
     ax.fill_between(
         results_annual_stat_location['annual_mle']['year'], results_reg_annual_stat['mu_ci_lower'], 
         results_reg_annual_stat['mu_ci_upper'], 
-        color=colors_reg[0], alpha=0.3, lw=0, label='annual stationary – 95% CI'
+        color=colors_reg[0], alpha=0.3, lw=0, label=f'annual stationary – {confidence_level_pc*100:.2f}% CI'
         )
 
     # non-stationary GEV
@@ -1488,7 +1487,8 @@ def plot_location_regression(
         label=f'non-stationary lin.regression · y(t) = {mu1_ns:.3f}·t + {mu0_ns:.3f}'
         )
     ax.fill_between(
-        years_, mu_ns_ci_lower, mu_ns_ci_upper, color=colors_reg[1], alpha=0.25, label='non-stationary – 95% CI'
+        years_, mu_ns_ci_lower, mu_ns_ci_upper, color=colors_reg[1], alpha=0.25, 
+        label=f'non-stationary – {confidence_level_pc*100:.2f}% CI'
         )
 
 

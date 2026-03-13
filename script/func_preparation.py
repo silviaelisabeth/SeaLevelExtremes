@@ -7,8 +7,11 @@ from typing import Optional
 
 import func_plotting as dbplt
 import func_utils as ut
+import matplotlib.colors as mcolors
+import numpy as np
 import reverse_geocoder as rg
 import xarray as xr
+from cmcrameri import cm
 from joblib import Parallel, delayed
 from numpy import allclose, ndarray
 from pandas import DataFrame, MultiIndex, concat
@@ -92,6 +95,15 @@ def extract_location_data(combined:Dataset, hindcast_start:int, hindcast_end:int
     results = data_rearrangement(combined=combined, hindcast_start=hindcast_start, hindcast_end=hindcast_end)
     dic_data_per_location, _ = extract_location_data_and_info(results)
     return dic_data_per_location
+
+
+def normalize_n_observants(df_valid):
+    n_obs_series = df_valid['n_obs']
+
+    min_obs = n_obs_series.min()
+    max_obs = n_obs_series.max()
+
+    return (n_obs_series - min_obs) / (max_obs - min_obs)
 
 
 def precompute_location_labels(dic_data_per_location:dict[str,DataFrame]) ->dict:
@@ -296,7 +308,7 @@ def get_location_w_missing_data(
 
 
 def create_summary_location_w_missing_data(
-    dic_data_per_model:dict, combined, n_obs_per_location:DataFrame, dir_export:Optional[str]=None
+    dic_data_per_model:dict, combined, n_obs_per_location:DataFrame, dir_export:Optional[str]=None, print_msg:bool=False
     )->DataFrame:
     
     model_label = list(dic_data_per_model.keys())[0]
@@ -304,10 +316,19 @@ def create_summary_location_w_missing_data(
         model_label=model_label, dic_data_per_model=dic_data_per_model, combined=combined, 
         n_obs_per_location=n_obs_per_location
         )
-    logger.info(f'{len(missing_locations)} locations without any valid data found!')
-    
+    message = f'{len(missing_locations)} locations without any valid data found!'
+    logger.info(message)
+    if print_msg:
+        print(message)
+
     df_missing_location = add_location_labels(missing_locations)
     df_missing_location = df_missing_location.sort_values('country')[['country', 'city', 'admin1', 'lat', 'lon']]
+    
+    norm_obs = normalize_n_observants(df_valid).to_numpy()  
+    colors_rgb = cm.navia(norm_obs)[:, :3]
+    alpha = 200
+    colors_int = np.hstack([np.round(colors_rgb*255).astype(int), np.full((colors_rgb.shape[0],1), alpha, dtype=int)])
+    df_valid['colors'] = colors_int.tolist()
     
     fig = dbplt.create_map_location_missing_valid_data(
         missing_locations=missing_locations, df_valid=df_valid,
@@ -318,11 +339,13 @@ def create_summary_location_w_missing_data(
         save_dir = Path(dir_export)
         save_dir.mkdir(parents=True, exist_ok=True) 
 
-        time_date = datetime.today().date().isoformat()
         file_name = save_dir / 'missing_locations_summary_{time_date}.txt'
         df_missing_location.to_csv(file_name, sep='\t', index=False)
-        logger.info(f"Overview of location with missing data saved as {file_name}.")
-
+        
+        message = f'Overview of location with missing data saved as {file_name}.'
+        logger.info(message)
+        if print_msg:
+            print(message)
 
     return df_missing_location, df_valid, fig
 
@@ -339,4 +362,6 @@ def crop_to_location_range(dic_data_per_location, start_location, end_location):
         print(f'Processing all {len(dic_data_per_location)} locations')
 
     print('Getting closest point available as location label for orientation. \nNote this is not the exact location...')
+    return dic_data_per_location
+    return dic_data_per_location
     return dic_data_per_location
