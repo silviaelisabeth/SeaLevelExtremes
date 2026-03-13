@@ -1347,7 +1347,8 @@ def annual_stationary_trend(annual_df, factor_m_to_mm=1000):
 
 
 def prepare_for_regression(
-    annual_stationary, nonstationary, years_mean, years_std, hindcast_start, hindcast_end, z_percentile, factor_m_to_mm
+    annual_stationary, nonstationary, years_mean, years_std, hindcast_start, hindcast_end, confidence_level_pc, 
+    factor_m_to_mm
     ):
     
     years_ = np.arange(hindcast_start, hindcast_end+1)
@@ -1369,10 +1370,11 @@ def prepare_for_regression(
 
     mu_ns = mu0_ns + mu1_ns * years_autoscaled
 
+    z = norm.ppf(1 - (1-confidence_level_pc)/2) 
     cov = nonstationary['cov'][:2, :2] * factor_m_to_mm**2
     mu_var = cov[0,0] + 2 * cov[0,1] * years_autoscaled + cov[1,1] * years_autoscaled**2  # shape (67,)
-    mu_ns_ci_upper = mu_ns + z_percentile * np.sqrt(mu_var)
-    mu_ns_ci_lower = mu_ns - z_percentile * np.sqrt(mu_var)
+    mu_ns_ci_upper = mu_ns + z * np.sqrt(mu_var)
+    mu_ns_ci_lower = mu_ns - z * np.sqrt(mu_var)
     
     return years_, {
         'stationary': (x_ans, y_ans, weights_ans, results_reg_annual_stat, slope_ans, intercept_ans), 

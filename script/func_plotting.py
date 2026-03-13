@@ -1450,7 +1450,7 @@ def plot_pooled_analysis_v2(
 
 
 def plot_location_regression(
-    loc_id, years_, dic_trend, results_annual_stat_location, 
+    loc_id, years_, dic_trend, results_annual_stat_location, confidence_level_pc:float,
     axes_color: str = '#333333',
     markers_color: str = "#99E3DDFF",
     colors_reg: list = ['#CAA5C2FF',  '#005C55FF'],
@@ -1479,7 +1479,7 @@ def plot_location_regression(
     ax.fill_between(
         results_annual_stat_location['annual_mle']['year'], results_reg_annual_stat['mu_ci_lower'], 
         results_reg_annual_stat['mu_ci_upper'], 
-        color=colors_reg[0], alpha=0.3, lw=0, label='annual stationary – 95% CI'
+        color=colors_reg[0], alpha=0.3, lw=0, label=f'annual stationary – {confidence_level_pc*100:.2f}% CI'
         )
 
     # non-stationary GEV
@@ -1488,7 +1488,8 @@ def plot_location_regression(
         label=f'non-stationary lin.regression · y(t) = {mu1_ns:.3f}·t + {mu0_ns:.3f}'
         )
     ax.fill_between(
-        years_, mu_ns_ci_lower, mu_ns_ci_upper, color=colors_reg[1], alpha=0.25, label='non-stationary – 95% CI'
+        years_, mu_ns_ci_lower, mu_ns_ci_upper, color=colors_reg[1], alpha=0.25, 
+        label=f'non-stationary – {confidence_level_pc*100:.2f}% CI'
         )
 
 

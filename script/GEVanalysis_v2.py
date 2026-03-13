@@ -244,7 +244,19 @@ def main(args):
                 logger.info('Processing all %s locations', len(dic_data_per_location))
         
         logger.info('Run annual stationary GEV analysis...')
-        results_extended = gev.fit_all_locations(dic_data_per_location, n_jobs=N_JOBS)
+        results = Parallel(
+            n_jobs=N_JOBS,
+            backend='loky',
+            initializer=ut.worker_init,
+            initargs=(log_queue,)
+            )(
+                delayed(gev.fit_location)(
+                    loc_id, df, None
+                    )
+                for loc_id, df in dic_data_per_location.items()
+                )
+        results_extended = dict(results)
+        # results_extended = gev.fit_all_locations(dic_data_per_location, n_jobs=N_JOBS)
         
         if save_results:
             try:
@@ -276,12 +288,13 @@ def main(args):
                 years_mean=results_nonstat_all[loc_id]['years_mean'], 
                 years_std=results_nonstat_all[loc_id]['years_std'], 
                 hindcast_start=HINDCAST_START, hindcast_end=HINDCAST_END,
-                z_percentile=1.96, factor_m_to_mm=1000
+                confidence_level_pc=CONFIDENCE_INTERVAL, factor_m_to_mm=1000
                 ) 
 
             fig_reg = dbplt.plot_location_regression(
-                loc_id, years_, dic_trend, results_annual_stat_all[loc_id], fontsize=12,
-                axes_color='#333333', markers_color="#99E3DDFF", colors_reg=['#CAA5C2FF',  '#005C55FF'], 
+                loc_id, years_, dic_trend, results_annual_stat_all[loc_id], confidence_level_pc=CONFIDENCE_INTERVAL, 
+                fontsize=12, axes_color='#333333', markers_color="#99E3DDFF", 
+                colors_reg=['#CAA5C2FF','#005C55FF'], 
                 )
             
             try:
