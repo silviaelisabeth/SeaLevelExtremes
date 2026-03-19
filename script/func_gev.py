@@ -893,7 +893,6 @@ def safe_return_period(z, mu, sigma, xi, max_T=1e4):
     return T
 
 
-
 def filter_unstable_samples(samples):
     filtered = []
     for p in samples:
@@ -1290,7 +1289,7 @@ def fit_all_locations(dic_data_per_location, n_jobs=-1):
     return dict(results)
 
 
-def annual_stationary_trend(annual_df, factor_m_to_mm=1000):
+def annual_stationary_trend(annual_df, confidence_level_pc, factor_m_to_mm=1000):
     """
     Compute weighted linear trend of annual GEV location parameter (mu) with standardized years.
     
@@ -1313,7 +1312,7 @@ def annual_stationary_trend(annual_df, factor_m_to_mm=1000):
     weights = annual_df['n_obs'].values
     
     x_mean = np.mean(x)
-    x_std_val = np.std(x, ddof=1)
+    x_std_val = np.std(x, ddof=0)
     x_std = (x - x_mean) / x_std_val
     
     X = sm.add_constant(x_std)
@@ -1326,9 +1325,10 @@ def annual_stationary_trend(annual_df, factor_m_to_mm=1000):
     mu1_se_mm = model.bse[1] * factor_m_to_mm
     
     mu_fit = mu0_mm + mu1_mm * x_std
-    
-    mu_ci_upper = mu_fit + 1.96 * mu1_se_mm * x_std
-    mu_ci_lower = mu_fit - 1.96 * mu1_se_mm * x_std
+
+    z = norm.ppf(1 - (1-confidence_level_pc)/2)
+    mu_ci_upper = mu_fit + z * mu1_se_mm * x_std
+    mu_ci_lower = mu_fit - z * mu1_se_mm * x_std
     
     return {
         'mu_trend': {
@@ -1359,7 +1359,7 @@ def prepare_for_regression(
     weights_ans = annual_stationary['annual_mle'].n_obs.values
 
     # ------------ stationary -------------------
-    results_reg_annual_stat = annual_stationary_trend(annual_stationary['annual_mle'])
+    results_reg_annual_stat = annual_stationary_trend(annual_stationary['annual_mle'], confidence_level_pc)
 
     intercept_ans = results_reg_annual_stat['mu_trend']['mu0']
     slope_ans = results_reg_annual_stat['mu_trend']['mu1']
@@ -1370,7 +1370,7 @@ def prepare_for_regression(
 
     mu_ns = mu0_ns + mu1_ns * years_autoscaled
 
-    z = norm.ppf(1 - (1-confidence_level_pc)/2) 
+    z = norm.ppf(1 - (1-confidence_level_pc)/2)
     cov = nonstationary['cov'][:2, :2] * factor_m_to_mm**2
     mu_var = cov[0,0] + 2 * cov[0,1] * years_autoscaled + cov[1,1] * years_autoscaled**2  # shape (67,)
     mu_ns_ci_upper = mu_ns + z * np.sqrt(mu_var)
@@ -1380,5 +1380,4 @@ def prepare_for_regression(
         'stationary': (x_ans, y_ans, weights_ans, results_reg_annual_stat, slope_ans, intercept_ans), 
         'nonstationary': (mu_ns, mu1_ns, mu0_ns, mu_ns_ci_lower, mu_ns_ci_upper),
         }
-
 

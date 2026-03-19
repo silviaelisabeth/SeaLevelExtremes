@@ -1000,7 +1000,7 @@ def plot_annual_max_with_trends_v2(
                     [annual_max['year'].min(), annual_max['year'].max()],
                     return_levels_nonstat.loc[ix, 'lower']*factor_m_to_mm, 
                     return_levels_nonstat.loc[ix, 'upper']*factor_m_to_mm, 
-                    color=color_palette_ns[k], alpha=0.15, label='95% CI (non-stationary μ)'
+                    color=color_palette_ns[k], alpha=0.15, label=f'{confidence_interval_pc*100:.2f}% CI (non-stationary μ)'
                     )
             ax.axhline(
                 return_levels_nonstat.loc[ix, 'z_T']*factor_m_to_mm, 
