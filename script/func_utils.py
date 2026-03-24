@@ -19,6 +19,7 @@ from pandas import DataFrame, concat, read_parquet
 from scipy.stats import norm
 
 logger = logging.getLogger("mp_gev_analysis")
+FACTORMTOMM = 1000
 
 
 def initialize_logger_v1(log_filename:str, log_dir:str="../logs"):
@@ -707,7 +708,7 @@ def store_location_regression(fig, loc_id, LatLon, location_info, path_child_fol
     print(f"Regression analysis for location parameter stored as {filename}")
 
 
-def extract_mu_for_all_sites_ns(results, factor_m_to_mm=1000):
+def extract_mu_for_all_sites_ns(results):
     dic_mu = dict()
     for loc_id in results.keys():
         try:
@@ -717,10 +718,10 @@ def extract_mu_for_all_sites_ns(results, factor_m_to_mm=1000):
         except:
             dic_mu[loc_id] = (None, None, None, None)
         
-    return DataFrame(dic_mu, index=['mu0_mm', 'mu0_std_mm', 'mu1_mm/yr', 'mu1_std_mm/yr']).T*factor_m_to_mm
+    return DataFrame(dic_mu, index=['mu0_mm', 'mu0_std_mm', 'mu1_mm/yr', 'mu1_std_mm/yr']).T*FACTORMTOMM
 
 
-def extract_mu_for_all_sites_astat(results, factor_m_to_mm=1000):
+def extract_mu_for_all_sites_astat(results):
     dic_mu = dict()
     for loc_id in results.keys():
         try:
@@ -730,7 +731,20 @@ def extract_mu_for_all_sites_astat(results, factor_m_to_mm=1000):
         except:
             dic_mu[loc_id] = (None, None, None, None)
         
-    return DataFrame(dic_mu, index=['mu0_mm', 'mu0_std_mm', 'mu1_mm/yr', 'mu1_std_mm/yr']).T*factor_m_to_mm
+    return DataFrame(dic_mu, index=['mu0_mm', 'mu0_std_mm', 'mu1_mm/yr', 'mu1_std_mm/yr']).T*FACTORMTOMM
+
+
+def extract_mu_for_all_sites_stat(results):
+    dic_mu = dict()
+    for loc_id in results.keys():
+        try:
+            mu0 = results[loc_id]['location']
+            mu0_std = results[loc_id]['location_std']
+            dic_mu[loc_id] = (mu0, mu0_std)
+        except:
+            dic_mu[loc_id] = (None, None)
+        
+    return DataFrame(dic_mu, index=['mu0_mm', 'mu0_std_mm']).T*FACTORMTOMM
 
 
 def mark_mu1_outliers_zmethod(df_plot, label_col, threshold=3):
@@ -773,6 +787,14 @@ def get_confidence_intervals_mu1(df_mu, confidence_level_pc):
     ).T
     
 
+def get_confidence_intervals_mu(df_mu, confidence_level_pc):
+    z_ci = norm.ppf(1 - (1-confidence_level_pc)/2) 
+    return DataFrame([
+        df_mu['mu0_mm'] - z_ci * df_mu['mu0_std_mm'],
+        df_mu['mu0_mm'] + z_ci * df_mu['mu0_std_mm']], index=['mu0_upper', 'mu0_lower']
+    ).T
+    
+    
 def import_info_for_regression(dir_import: str) -> tuple[dict(), dict(), dict(), dict()]:
     
     file_annual_stat = dir_import + '/stationary_per_year.pkl'
@@ -814,5 +836,14 @@ def import_info_for_regression(dir_import: str) -> tuple[dict(), dict(), dict(),
     return results_annual_stat_all, results_nonstat_all, location_geo_info, location_point_info
 
 
-
+def import_pickle_data(dir_import, pkl_file):
+    file_full_path = dir_import + '/' + pkl_file
+    if not os.path.isfile(file_full_path):
+        print(f'{file_full_path} does not exist in folder; skipping data import... ')
+        results_import_all = {}
+    else:
+        print(f'loading {file_full_path}')
+        with open(file_full_path, "rb") as f:
+            results_import_all = pickle.load(f)
+    return results_import_all
 

@@ -35,8 +35,9 @@ sns.set_style('whitegrid')
 
 PALETTE_NAME = "roma"
 palette_func = getattr(cmc, PALETTE_NAME)
-cmap = cm.managua_r
+CMAP = cm.managua_r
 OUTLIER_COLOR = [200, 50, 200, 180] #< gold-yellow | [220, 50, 50, 180] #< red # [253, 253, 253, 180] #< white
+FACTORMTOMM = 1000
 
 
 def create_map_location_missing_valid_data(
@@ -1009,7 +1010,6 @@ def plot_annual_max_with_trends_v2(
     color_markers:str='#99E3DDFF', 
     ms:int=6, 
     fontsize:float=10, 
-    factor_m_to_mm:int = 1000,
     plot_ci:bool=False,
     ) -> bool:
     """
@@ -1022,7 +1022,7 @@ def plot_annual_max_with_trends_v2(
 
     # --- Plot annual maxima ---
     ax.plot(
-        annual_max['year'], annual_max['annual_max']*factor_m_to_mm, 'o', color=color_markers, markersize=ms, 
+        annual_max['year'], annual_max['annual_max']*FACTORMTOMM, 'o', color=color_markers, markersize=ms, 
         label='Annual max, mm'
     )
 
@@ -1036,12 +1036,12 @@ def plot_annual_max_with_trends_v2(
             if plot_ci:
                 ax.fill_between(
                     [annual_max['year'].min(), annual_max['year'].max()],
-                    return_levels_stat.loc[ix, 'lower']*factor_m_to_mm, 
-                    return_levels_stat.loc[ix, 'upper']*factor_m_to_mm, 
+                    return_levels_stat.loc[ix, 'lower']*FACTORMTOMM, 
+                    return_levels_stat.loc[ix, 'upper']*FACTORMTOMM, 
                     color=color_palette_s[k], alpha=0.15, label=f'{confidence_interval_pc*100:.2f}% CI (stationary)'
                     )
             ax.axhline(
-                return_levels_stat.loc[ix, 'z_T']*factor_m_to_mm, 
+                return_levels_stat.loc[ix, 'z_T']*FACTORMTOMM, 
                 color=color_palette_s[0], linestyle=linestyle_trends[en], lw=1.5,
                 label=f'return period {return_levels_stat.loc[ix, 'return_period']} (stationary)'
                 )
@@ -1056,12 +1056,12 @@ def plot_annual_max_with_trends_v2(
             if plot_ci:
                 ax.fill_between(
                     [annual_max['year'].min(), annual_max['year'].max()],
-                    return_levels_nonstat.loc[ix, 'lower']*factor_m_to_mm, 
-                    return_levels_nonstat.loc[ix, 'upper']*factor_m_to_mm, 
+                    return_levels_nonstat.loc[ix, 'lower']*FACTORMTOMM, 
+                    return_levels_nonstat.loc[ix, 'upper']*FACTORMTOMM, 
                     color=color_palette_ns[k], alpha=0.15, label=f'{confidence_interval_pc*100:.2f}% CI (non-stationary μ)'
                     )
             ax.axhline(
-                return_levels_nonstat.loc[ix, 'z_T']*factor_m_to_mm, 
+                return_levels_nonstat.loc[ix, 'z_T']*FACTORMTOMM, 
                 color=color_palette_ns[-1], linestyle=linestyle_trends[en], lw=1.5,
                 label=f'return period {return_levels_nonstat.loc[ix, 'return_period']} (non-stationary)'
                 )
@@ -1419,7 +1419,6 @@ def plot_pooled_analysis_v2(
     linespace: float = 1.5,
     display_results: bool = False,
     plot_ci:bool=False,
-    factor_m_to_mm=1000,
     ):
     """_summary_
 
@@ -1446,7 +1445,6 @@ def plot_pooled_analysis_v2(
         linespace (float, optional): _description_. Defaults to 1.5.
         display_results (bool, optional): _description_. Defaults to False.
         plot_ci (bool, optional): _description_. Defaults to False.
-        factor_m_to_mm (int, optional): _description_. Defaults to 1000.
     """
     location_info = result['location_info']
     lat, lon = result['LatLon']
@@ -1483,7 +1481,7 @@ def plot_pooled_analysis_v2(
     plot_annual_max_with_trends_v2(
         ax=ax_top_left, annual_max=annual_max, return_levels=result['return_levels'], t_eval=ls_t_eval[0],
         plot_evolution=plot_evolution, linestyle_trends=linestyle_trends, axes_color=axes_color, plot_ci=plot_ci,
-        colors_trends=color_palette, color_markers=color_markers, ms=6, fontsize=fontsize, factor_m_to_mm=factor_m_to_mm, 
+        colors_trends=color_palette, color_markers=color_markers, ms=6, fontsize=fontsize, 
         confidence_interval_pc=confidence_interval_pc)
     
     # ----------------------------------------------------------------------------   
@@ -1657,74 +1655,111 @@ def plot_location_regression(
 
 
 def prep_for_plot(
-    result, location_geo_info, approach, confidence_level_pc, threshold_z_outlier=3, factor_m_to_mm=1000
+    result, location_geo_info, approach, parameter, confidence_level_pc, mark_outlier, 
+    threshold_z_outlier=3
     ):
     if approach == 'non-stationary':
-        df_mu = ut.extract_mu_for_all_sites_ns(result, factor_m_to_mm)
+        df_mu = ut.extract_mu_for_all_sites_ns(result)
     elif approach == 'annual-stationary':
-        df_mu = ut.extract_mu_for_all_sites_astat(result, factor_m_to_mm)
+        df_mu = ut.extract_mu_for_all_sites_astat(result)
+    elif approach == 'stationary':
+        df_mu = ut.extract_mu_for_all_sites_stat(result)
     else:
         raise ValueError(
-            '*approach* not properly defined. Set either as non-stationary or annual-stationary to continue...'
+            '*approach* not properly defined. '
+            'Set either as stationary, non-stationary or annual-stationary to continue...'
             )
-    ci_mu1 = ut.get_confidence_intervals_mu1(df_mu=df_mu, confidence_level_pc=confidence_level_pc)
-    
+        
+    if parameter == 'mu1':
+        if approach == 'stationary':
+            raise ValueError('Wrong combination! Statioanry GEV has no mu1 per definition.')
+        
+        ci_mu1 = ut.get_confidence_intervals_mu1(df_mu=df_mu, confidence_level_pc=confidence_level_pc)
+        label_col='mu1_mm/yr'
+        
+    elif parameter == 'mu':
+        ci_mu = ut.get_confidence_intervals_mu(df_mu=df_mu, confidence_level_pc=confidence_level_pc)
+        label_col='mu0_mm'
+        
     rows = []
     for loc_id in df_mu.index:
 
         lat, lon = location_geo_info[loc_id]
 
-        mu1 = df_mu.loc[loc_id, 'mu1_mm/yr']
-        se_mu1 = df_mu.loc[loc_id, 'mu1_std_mm/yr']
+        if parameter == 'mu1':
+            mu1 = df_mu.loc[loc_id, 'mu1_mm/yr']
+            se_mu1 = df_mu.loc[loc_id, 'mu1_std_mm/yr']
+            
+            ci_mu_lower = ci_mu1.loc[loc_id]['mu1_lower']
+            ci_mu_upper = ci_mu1.loc[loc_id]['mu1_upper']
+                
+        elif parameter == 'mu':
+            ci_mu_lower = ci_mu.loc[loc_id]['mu0_lower']
+            ci_mu_upper = ci_mu.loc[loc_id]['mu0_upper']
+            
+            mu = df_mu.loc[loc_id, 'mu0_mm']
+            se_mu = df_mu.loc[loc_id, 'mu0_std_mm']
+            
+        if ci_mu_lower > ci_mu_upper:
+            a, b = ci_mu_lower, ci_mu_upper
+            ci_mu_upper = a
+            ci_mu_lower = b
+        significant = not (ci_mu_lower <= 0 <= ci_mu_upper)
 
-        ci_mu1_lower = ci_mu1.loc[loc_id]['mu1_lower']
-        ci_mu1_upper = ci_mu1.loc[loc_id]['mu1_upper']
-        
-        if ci_mu1_lower > ci_mu1_upper:
-            a, b = ci_mu1_lower, ci_mu1_upper
-            ci_mu1_upper = a
-            ci_mu1_lower = b
-        significant = not (ci_mu1_lower <= 0 <= ci_mu1_upper)
-
-        rows.append({
-            "loc_id": loc_id,
-            "lat": lat,
-            "lon": lon,
-            "mu1": mu1,
-            "mu1_std": se_mu1,
-            "mu1_ci_lower": ci_mu1_lower,
-            "mu1_ci_upper": ci_mu1_upper,
-            "significant": significant
-        })
+        if parameter == 'mu1':
+            rows.append({
+                "loc_id": loc_id,
+                "lat": lat,
+                "lon": lon,
+                "mu1": mu1,
+                "mu1_std": se_mu1,
+                "mu1_ci_lower": ci_mu_lower,
+                "mu1_ci_upper": ci_mu_upper,
+                "significant": significant
+            })
+        elif parameter == 'mu':
+            rows.append({
+                "loc_id": loc_id,
+                "lat": lat,
+                "lon": lon,
+                "mu": mu,
+                "mu_std": se_mu,
+                "mu_ci_lower": ci_mu_lower,
+                "mu_ci_upper": ci_mu_upper,
+                "significant": significant
+            })
 
     # mark outliers
-    df_mu = ut.mark_mu1_outliers_zmethod(df_mu, label_col='mu1_mm/yr', threshold=threshold_z_outlier)
-    df_plot = ut.mark_mu1_outliers_zmethod(DataFrame(rows), label_col='mu1', threshold=threshold_z_outlier)
+    if mark_outlier is True:
+        df_mu = ut.mark_mu1_outliers_zmethod(df_mu, label_col=label_col, threshold=threshold_z_outlier)
+        df_plot = ut.mark_mu1_outliers_zmethod(DataFrame(rows), label_col=parameter, threshold=threshold_z_outlier)
+        return df_plot, df_mu
+    else:
+        return DataFrame(rows), df_mu
 
-    return df_plot, df_mu
 
-
-def convert_mu1_to_color(df_plot, mark_outlier):    
+def convert_mu1_to_color(df_plot, mark_outlier, parameter):    
     df = df_plot.copy()
     
     if mark_outlier is True:
-        max_abs = np.nanpercentile(abs(df_plot.loc[~df_plot["outliers"], "mu1"]), 98)
+        max_abs = np.nanpercentile(abs(df_plot.loc[~df_plot["outliers"], parameter]), 98)
     else:
-        max_abs = np.nanpercentile(abs(df_plot["mu1"]), 98)
+        max_abs = np.nanpercentile(abs(df_plot[parameter]), 98)
+        
     norm = mcolors.TwoSlopeNorm(vmin=-max_abs, vcenter=0, vmax=max_abs)
-    def mu1_to_color(val):
-        rgba = cmap(norm(val))
+    def mu_to_color(val):
+        rgba = CMAP(norm(val))
         return [int(255*c) for c in rgba[:3]]
 
-    df["color"] = df["mu1"].apply(mu1_to_color)
+    df["color"] = df[parameter].apply(mu_to_color)
     return df
 
 
-def convert_mu1STD_to_alpha(df_plot):
+def convert_mu1STD_to_alpha(df_plot, parameter):
     """
     Converting uncertainty into transparency: higher uncertainty → more transparent
     """
-    max_se = np.nanpercentile(abs(df_plot["mu1_std"]), 98)
+    max_se = np.nanpercentile(abs(df_plot[parameter+"_std"]), 98)
     def se_to_alpha(se):
         norm_se = min(se / max_se, 1)
         if np.isnan(norm_se):
@@ -1733,18 +1768,18 @@ def convert_mu1STD_to_alpha(df_plot):
             alpha = int(255 * (1 - norm_se))      
         return max(alpha, 10)  # prevent fully invisible
 
-    df_plot["alpha"] = df_plot["mu1_std"].apply(se_to_alpha)
+    df_plot["alpha"] = df_plot[parameter+"_std"].apply(se_to_alpha)
     return df_plot
 
 
-def convert_mu1STD_to_size(df_plot, min_size=10, max_size=200):
+def convert_mu1STD_to_size(df_plot, parameter, min_size=10, max_size=200):
     """
     Convert uncertainty into marker size:
     higher uncertainty → smaller marker
     lower uncertainty → larger marker
     """
 
-    max_se = np.nanpercentile(abs(df_plot["mu1_std"]), 98)
+    max_se = np.nanpercentile(abs(df_plot[parameter+"_std"]), 98)
 
     def se_to_size(se):
         norm_se = min(se / max_se, 1) if not np.isnan(se) else 1
@@ -1752,15 +1787,15 @@ def convert_mu1STD_to_size(df_plot, min_size=10, max_size=200):
 
         return max(ms_size, min_size)
 
-    df_plot["marker_size"] = df_plot["mu1_std"].apply(se_to_size)
+    df_plot["marker_size"] = df_plot[parameter+"_std"].apply(se_to_size)
     return df_plot
 
 
-def custom_color_for_mu1(df_plot, mark_outlier, min_size=10, max_size=200):
+def custom_color_for_mu_and_mu1(df_plot, mark_outlier, parameter, min_size=10, max_size=200):
 
-    df_plot = convert_mu1_to_color(df_plot, mark_outlier)
-    df_plot = convert_mu1STD_to_alpha(df_plot)
-    df_plot = convert_mu1STD_to_size(df_plot, min_size=min_size, max_size=max_size)
+    df_plot = convert_mu1_to_color(df_plot, mark_outlier, parameter)
+    df_plot = convert_mu1STD_to_alpha(df_plot, parameter)
+    df_plot = convert_mu1STD_to_size(df_plot, parameter, min_size=min_size, max_size=max_size)
 
     df_plot["color_rgba"] = df_plot.apply(lambda row: row["color"] + [row["alpha"]],axis=1)
     
@@ -1815,7 +1850,7 @@ def create_color_legend(cmap, max_abs):
     return legend_html
 
 
-def create_gradient_legend(cmap, norm, threshold_z_method, width=180, height=15, n_steps=100):
+def create_gradient_legend(cmap, norm, threshold_z_method, parameter, unit, width=180, height=15, n_steps=100):
     """
     Create an HTML gradient legend matching your colormap and normalization.
 
@@ -1836,6 +1871,7 @@ def create_gradient_legend(cmap, norm, threshold_z_method, width=180, height=15,
     gradient_str = ",".join(gradient)
 
     # HTML for gradient legend
+    parameter_pretty = 'μ₁' if parameter == 'mu1' else 'μ'
     legend_html = f"""
     <div style="
         position: fixed;
@@ -1849,7 +1885,7 @@ def create_gradient_legend(cmap, norm, threshold_z_method, width=180, height=15,
         padding: 6px;
         z-index: 9999;
     ">
-        <b>Trend μ₁ (mm/yr)</b><br>
+        <b>Trend {parameter_pretty}, {unit}</b><br>
         <div style="
             height: {height}px;
             background: linear-gradient(to right, {gradient_str});
@@ -1875,20 +1911,37 @@ def create_gradient_legend(cmap, norm, threshold_z_method, width=180, height=15,
     return legend_html
 
 
-def plot_mu1_for_sites(
-    df_plot_, approach, inital_zoom, mark_outlier, threshold_z_method, 
-    file_name:str, saving_map:bool, axes_color:str='#333333'
-    ):
+def plot_mu_and_mu1_for_all_sites_interactive(
+    df_plot_, parameter, unit, approach, inital_zoom,
+    mark_outlier, threshold_z_method, cmap,
+    file_name: str, saving_map: bool,
+    axes_color: str = '#333333'
+):
+
     df_plot = df_plot_.copy()
-    
-    df_plot["mu1_str"] = df_plot["mu1"].map("{:.3f}".format)
-    df_plot["mu1_std_str"] = df_plot["mu1_std"].map("{:.3f}".format)
-    df_plot["mu1_ci_lower_str"] = df_plot["mu1_ci_lower"].map("{:.3f}".format)
-    df_plot["mu1_ci_upper_str"] = df_plot["mu1_ci_upper"].map("{:.3f}".format)
+
+    for suffix in ["", "_std", "_ci_lower", "_ci_upper"]:
+        col = parameter + suffix
+        df_plot[col + "_str"] = df_plot[col].map("{:.3f}".format)
+
     df_plot["lat_str"] = df_plot["lat"].map("{:.3f}".format)
     df_plot["lon_str"] = df_plot["lon"].map("{:.3f}".format)
-    df_plot["status"] = df_plot["outliers"].apply(lambda x: "invalid (outlier)" if x else "valid")
-                
+
+    # ---- Handle outliers ----
+    if mark_outlier:
+        df_plot["status"] = df_plot["outliers"].apply(
+            lambda x: "invalid (outlier)" if x else "valid"
+        )
+        data = df_plot.loc[~df_plot["outliers"], parameter]
+    else:
+        data = df_plot[parameter]
+
+    min_value = np.nanmin(data)
+    max_value = np.nanmax(data)
+
+    norm = mcolors.Normalize(vmin=min_value, vmax=max_value)
+
+    # ---- Plotting ----
     layer = pdk.Layer(
         "ScatterplotLayer",
         data=df_plot,
@@ -1898,59 +1951,73 @@ def plot_mu1_for_sites(
         pickable=True,
     )
 
+    # ---- View ----
     view_state = pdk.ViewState(
-        latitude=df_plot["lat"].mean(),
-        longitude=df_plot["lon"].mean(),
-        zoom=inital_zoom,
+        latitude=df_plot["lat"].mean(), longitude=df_plot["lon"].mean(), zoom=inital_zoom,
     )
-    
-    if mark_outlier is True:
-        max_abs = np.nanpercentile(abs(df_plot.loc[~df_plot["outliers"], "mu1"]), 98)
-    else:
-        max_abs = np.nanpercentile(abs(df_plot["mu1"]), 98)
-    norm = mcolors.TwoSlopeNorm(vmin=-max_abs, vcenter=0, vmax=max_abs)
-    legend_html = create_gradient_legend(cmap, norm, threshold_z_method, width=260, height=15, n_steps=100)
+
+    legend_html = create_gradient_legend(
+        cmap, norm, threshold_z_method, parameter=parameter, unit=unit, width=260, height=15, n_steps=100
+    )
+
+    label_para = parameter + "_str"
+    label_para_std = parameter + "_std_str"
+
+    symbol = "μ₁" if parameter == "mu1" else "μ"
+
+    status_line = "status: {status}<br>" if mark_outlier else ""
+
+    tooltip_html = f"""
+        <b>Location</b><br>
+        Lat: {{lat_str}}<br>
+        Lon: {{lon_str}}<br>
+        {symbol}: {{{label_para}}} {unit}<br>
+        std_error: {{{label_para_std}}} {unit}<br>
+        {status_line}
+    """
+
+    dic_tooltip = {
+        "html": tooltip_html,
+        "style": {
+            "backgroundColor": "lightgray",
+            "color": axes_color,
+            "padding": "8px"
+        }
+    }
 
     deck = pdk.Deck(
         layers=[layer],
         initial_view_state=view_state,
         map_style="https://tiles.openfreemap.org/styles/positron",
-        tooltip={
-            "html": """
-                <b>Location</b><br>
-                Lat: {lat_str}<br>
-                Lon: {lon_str}<br>
-                μ₁: {mu1_str} mm/yr<br>
-                std_error: {mu1_std_str} mm/yr<br>
-                status: {status}
-            """,
-            "style": {"backgroundColor": "lightgray", "color": axes_color, "padding": "8px"}
-        }
-        )
+        tooltip=dic_tooltip
+    )
 
+    # ---- Save map ----
     if saving_map:
-        today_ = str(datetime.today().date().isoformat()) 
-
+        today_ = datetime.today().date().isoformat()
         output_path = f"../output/gev_analysis/{today_}/figures/"
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        os.makedirs(output_path, exist_ok=True)
 
         if approach not in file_name:
-            file_name = file_name.split('.')[0] + '_' + '_'.join(approach.split(' ')) + '.html'
-        print('map stored as %s', output_path + file_name)
+            file_name = (file_name.split('.')[0] + '_' + '_'.join(approach.split(' ')) + '.html')
+
         full_path = output_path + file_name
+        print(f"map stored as {full_path}")
+
         deck.to_html(full_path)
 
         with open(full_path, "r", encoding="utf-8") as f:
             html = f.read()
 
         html = re.sub(
-            r"<title>.*?</title>", 
-            f"<title>GEV μ1 trend map ({approach})</title>", html, 
+            r"<title>.*?</title>",
+            f"<title>GEV {symbol} trend map ({approach})</title>",
+            html,
             flags=re.IGNORECASE
-            )
+        )
         html = html.replace("</body>", legend_html + "\n</body>")
 
         with open(full_path, "w", encoding="utf-8") as f:
             f.write(html)
-    return deck
+
     return deck
