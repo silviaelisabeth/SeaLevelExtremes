@@ -19,16 +19,20 @@ PATH_EXPORT = '../output/'
 PATH_LOGS = '../logs/'
 HINDCAST_START = 1960
 HINDCAST_END = 2026
+SCALING_YEARS = True                        # referring to centering the years around the mean (keeps unit)
 RETURN_PERIODS = [10, 25, 50, 100, 200]
 RETURN_PERIOD_EVAL = 50
 PLOT_PERIOD_EVOLUTION = ['10-year', '50-year', '100-year']
 T_EVAL_BASE = 1961
 LS_T_EVAL = 1961, 2026, 2050
-CONFIDENCE_INTERVAL = 0.9 # 90%
+CONFIDENCE_INTERVAL = 0.9                   # 90%
 
 DISPLAY_RESULTS = False
-N_JOBS = 4  
-BATCH_SIZE = 300      
+N_JOBS = -1
+BATCH_SIZE = 400
+B=300
+SEED=None
+
 
 ls_default = ['pooled', 'annual-stationary', 'regression'] # additional 'map'
 
@@ -153,6 +157,9 @@ def main(args):
                     return_periods=RETURN_PERIODS,
                     ls_t_eval=LS_T_EVAL,
                     location_info=label,
+                    B=B,
+                    seed=SEED,
+                    years_scaled=SCALING_YEARS,
                     confidence_level_pc=CONFIDENCE_INTERVAL,
                     ref_year_rp=T_EVAL_BASE, 
                     t_ref_rp=RETURN_PERIOD_EVAL,
@@ -251,12 +258,11 @@ def main(args):
             initargs=(log_queue,)
             )(
                 delayed(gev.fit_location)(
-                    loc_id, df, None
+                    loc_id, df, SCALING_YEARS, None
                     )
                 for loc_id, df in dic_data_per_location.items()
                 )
         results_extended = dict(results)
-        # results_extended = gev.fit_all_locations(dic_data_per_location, n_jobs=N_JOBS)
         
         if save_results:
             try:
@@ -282,19 +288,18 @@ def main(args):
     
     
         for loc_id in results_annual_stat_all.keys():
-            years_, dic_trend = gev.prepare_for_regression(
+            years_, dic_trend = gev.prepare_for_regression(                
                 annual_stationary=results_annual_stat_all[loc_id], 
                 nonstationary=results_nonstat_all[loc_id],
-                years_mean=results_nonstat_all[loc_id]['years_mean'], 
-                years_std=results_nonstat_all[loc_id]['years_std'], 
-                hindcast_start=HINDCAST_START, hindcast_end=HINDCAST_END,
-                confidence_level_pc=CONFIDENCE_INTERVAL, factor_m_to_mm=1000
+                confidence_level_pc=CONFIDENCE_INTERVAL, factor_m_to_mm=1000,
+                years_scaled=SCALING_YEARS
                 ) 
 
             fig_reg = dbplt.plot_location_regression(
-                loc_id, years_, dic_trend, results_annual_stat_all[loc_id], confidence_level_pc=CONFIDENCE_INTERVAL, 
+                loc_id, years_, dic_trend, results_annual_stat_all[loc_id], 
+                confidence_level_pc=CONFIDENCE_INTERVAL, years_scaled=SCALING_YEARS,
                 fontsize=12, axes_color='#333333', markers_color="#99E3DDFF", 
-                colors_reg=['#CAA5C2FF','#005C55FF'], 
+                colors_reg=['#CAA5C2FF','#005C55FF'],
                 )
             
             try:

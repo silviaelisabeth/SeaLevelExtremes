@@ -1,14 +1,18 @@
 import logging
+import os
+import re
 from datetime import datetime
 from pathlib import Path
 
 import cmcrameri.cm as cmc
 import func_utils as ut
 import matplotlib
+import matplotlib.colors as mcolors
 import matplotlib.gridspec as gridspec
 import numpy as np
 import pydeck as pdk
 import seaborn as sns
+from cmcrameri import cm
 from matplotlib import rcParams
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
@@ -31,6 +35,8 @@ sns.set_style('whitegrid')
 
 PALETTE_NAME = "roma"
 palette_func = getattr(cmc, PALETTE_NAME)
+cmap = cm.managua_r
+OUTLIER_COLOR = [200, 50, 200, 180] #< gold-yellow | [220, 50, 50, 180] #< red # [253, 253, 253, 180] #< white
 
 
 def create_map_location_missing_valid_data(
@@ -756,7 +762,32 @@ def plot_analysis(
     linespace: float = 1.5,
     display_results: bool = False,
     ) -> None:
-    """Create comprehensive visualization."""
+    """_summary_
+    Create comprehensive visualization.
+    Args:
+        results (dict): _description_
+        model (str): _description_
+        lat_lon_tuple (tuple[float, float]): _description_
+        location_info (str): _description_
+        periods_evolution (list[str], optional): _description_. Defaults to ['10-year', '50-year', '100-year'].
+        save_path (str, optional): _description_. Defaults to None.
+        width_bar_returns (float, optional): _description_. Defaults to 0.35.
+        box_parameters_x (float, optional): _description_. Defaults to 0.05.
+        box_parameters_y (float, optional): _description_. Defaults to 0.95.
+        color_markers (str, optional): _description_. Defaults to '#99E3DDFF'.
+        colors_trends (str, optional): _description_. Defaults to "#1D141BFF".
+        bbox_color (str, optional): _description_. Defaults to '#F5F5F5FF'.
+        colors_models (list[str], optional): _description_. Defaults to ['#B887ADFF', '#008A80FF'].
+        colors_return_levels (list[str], optional): _description_. Defaults to ['#008A80FF','#CAA5C2FF'].
+        linestyle_trends (list, optional): _description_. Defaults to ['dashdot', 'dashed', 'solid'].
+        axes_color (str, optional): _description_. Defaults to '#333333'.
+        leg_comparison_x (float, optional): _description_. Defaults to 0.25.
+        leg_comparison_y (float, optional): _description_. Defaults to 0.5.
+        fontsize (float, optional): _description_. Defaults to 9.
+        figsize (tuple[float, float], optional): _description_. Defaults to (15, 8).
+        linespace (float, optional): _description_. Defaults to 1.5.
+        display_results (bool, optional): _description_. Defaults to False.
+    """
 
     if model not in results or lat_lon_tuple not in results[model].keys():
         logger.info('No results for %s, %s', model, lat_lon_tuple)
@@ -858,7 +889,34 @@ def plot_pooled_analysis(
     linespace: float = 1.5,
     display_results: bool = False,
     ) -> Figure:
-    """Create comprehensive visualization."""
+    """_summary_
+    Create comprehensive visualization.
+    Args:
+        result (dict): _description_
+        site_id (int): _description_
+        periods_evolution (list[str], optional): _description_. Defaults to ['10-year', '50-year', '100-year'].
+        save_path (str, optional): _description_. Defaults to None.
+        width_bar_returns (float, optional): _description_. Defaults to 0.35.
+        box_parameters_x (float, optional): _description_. Defaults to 0.05.
+        box_parameters_y (float, optional): _description_. Defaults to 0.95.
+        color_markers (str, optional): _description_. Defaults to '#99E3DDFF'.
+        colors_trends (str, optional): _description_. Defaults to "#1D141BFF".
+        bbox_color (str, optional): _description_. Defaults to '#F5F5F5FF'.
+        colors_models (list[str], optional): _description_. Defaults to ['#B887ADFF', '#008A80FF'].
+        colors_return_levels (list[str], optional): _description_. Defaults to ['#008A80FF','#CAA5C2FF'].
+        linestyle_trends (list, optional): _description_. Defaults to ['dashdot', 'dashed', 'solid'].
+        axes_color (str, optional): _description_. Defaults to '#333333'.
+        leg_comparison_x (float, optional): _description_. Defaults to 0.25.
+        leg_comparison_y (float, optional): _description_. Defaults to 0.5.
+        fontsize (float, optional): _description_. Defaults to 9.
+        figsize (tuple[float, float], optional): _description_. Defaults to (15, 8).
+        linespace (float, optional): _description_. Defaults to 1.5.
+        display_results (bool, optional): _description_. Defaults to False.
+
+    Returns:
+        Figure: _description_
+    """
+    
     location_info = result['location info']
     lat, lon = str(location_info['lat'].round(3)), str(location_info['lon'].round(3))
     annual_max = result['data']
@@ -1049,8 +1107,18 @@ def plot_level_evolution_v2(
     axes_color:str = '#333333',
     plot_t_eval:list[int] | None = None, 
     ) -> None:
-    """
+    """_summary_
     Plot evolution of return levels for non-stationary GEV including CI as shaded bars.
+    Args:
+        ax (Axes): _description_
+        return_levels (dict): _description_
+        T_values (list[int]): _description_
+        color_levels (list[str], optional): _description_. Defaults to ['#008A80FF','#CAA5C2FF'].
+        alpha_levels (list[float], optional): _description_. Defaults to [0.25, 0.15, 0.5].
+        ls_linestyle (list[str], optional): _description_. Defaults to ['--', '-'].
+        fontsize (float, optional): _description_. Defaults to 10.
+        axes_color (str, optional): _description_. Defaults to '#333333'.
+        plot_t_eval (list[int] | None, optional): _description_. Defaults to None.
     """
     k = 0
     ls_t_eval = return_levels.t_eval.unique()
@@ -1118,6 +1186,19 @@ def plot_model_comparison_v2(
     leg_y:float = 0.5, 
     fontsize:float = 10
     ) -> None:
+    """_summary_
+
+    Args:
+        ax (Axes): _description_
+        comp (dict | None): _description_
+        colors_models (list[str]): _description_
+        models_names (list[str], optional): _description_. Defaults to ['Stationary', 'Non-Stationary'].
+        axes_color (str, optional): _description_. Defaults to '#333333'.
+        bbox_color (str, optional): _description_. Defaults to '#F5F5F5FF'.
+        leg_x (float, optional): _description_. Defaults to 0.15.
+        leg_y (float, optional): _description_. Defaults to 0.5.
+        fontsize (float, optional): _description_. Defaults to 10.
+    """
     
     aics = [comp['stationary']['AIC'], comp['nonstationary']['AIC']]
     
@@ -1340,7 +1421,33 @@ def plot_pooled_analysis_v2(
     plot_ci:bool=False,
     factor_m_to_mm=1000,
     ):
-    """Create comprehensive visualization."""
+    """_summary_
+
+    Args:
+        result (dict): _description_
+        site_id (int): _description_
+        t_eval_base (int): _description_
+        return_periods (list[int]): _description_
+        plot_evolution (list[int]): _description_
+        confidence_interval_pc (float): _description_
+        save_path (str, optional): _description_. Defaults to None.
+        return_period_base (int, optional): _description_. Defaults to 50.
+        box_parameters_x (float, optional): _description_. Defaults to 0.45.
+        box_parameters_y (float, optional): _description_. Defaults to 0.95.
+        color_markers (str, optional): _description_. Defaults to '#99E3DDFF'.
+        bbox_color (str, optional): _description_. Defaults to '#F5F5F5FF'.
+        colors_models (list[str], optional): _description_. Defaults to ['#B887ADFF', '#008A80FF'].
+        linestyle_trends (_type_, optional): _description_. Defaults to ['-', '--', '-.', ':', (0, (1, 1)), (0, (5, 10))].
+        axes_color (str, optional): _description_. Defaults to '#333333'.
+        leg_comparison_x (float, optional): _description_. Defaults to 0.075.
+        leg_comparison_y (float, optional): _description_. Defaults to 0.35.
+        fontsize (float, optional): _description_. Defaults to 9.
+        figsize (tuple[float, float], optional): _description_. Defaults to (15, 8).
+        linespace (float, optional): _description_. Defaults to 1.5.
+        display_results (bool, optional): _description_. Defaults to False.
+        plot_ci (bool, optional): _description_. Defaults to False.
+        factor_m_to_mm (int, optional): _description_. Defaults to 1000.
+    """
     location_info = result['location_info']
     lat, lon = result['LatLon']
     lat = lat.round(3)
@@ -1450,19 +1557,37 @@ def plot_pooled_analysis_v2(
 
 def plot_location_regression(
     loc_id, years_, dic_trend, results_annual_stat_location, confidence_level_pc:float,
+    years_scaled:bool,
     axes_color: str = '#333333',
     markers_color: str = "#99E3DDFF",
     colors_reg: list = ['#CAA5C2FF',  '#005C55FF'],
     fontsize:int=12,
-    display_results:bool=False
+    display_results:bool=False,
     ):
+    """_summary_
+
+    Args:
+        loc_id (_type_): _description_
+        years_ (_type_): _description_
+        dic_trend (_type_): _description_
+        results_annual_stat_location (_type_): _description_
+        confidence_level_pc (float): _description_
+        axes_color (str, optional): _description_. Defaults to '#333333'.
+        markers_color (str, optional): _description_. Defaults to "#99E3DDFF".
+        colors_reg (list, optional): _description_. Defaults to ['#CAA5C2FF',  '#005C55FF'].
+        fontsize (int, optional): _description_. Defaults to 12.
+        display_results (bool, optional): _description_. Defaults to False.
+
+    Returns:
+        _type_: _description_
+    """
 
     x_ans, y_ans, weights_ans, results_reg_annual_stat, slope_ans, intercept_ans = dic_trend['stationary']
     mu_ns, mu1_ns, mu0_ns, mu_ns_ci_lower, mu_ns_ci_upper = dic_trend['nonstationary']
-
+    
     fig, ax = plt.subplots(figsize=(13, 4))
 
-    # annual-stationary GEV results
+    # ----- annual-stationary GEV results -----
     ax.scatter(
         x_ans, y_ans, s=weights_ans*2.5, marker='o', color=markers_color, alpha=0.75, 
         label='fit result annual stationary GEV (size ~ n_obs)'
@@ -1471,9 +1596,16 @@ def plot_location_regression(
     for _, row in results_annual_stat_location['annual_mle'].iterrows():
             ax.text(row.year, row.location*1005, f"{row.n_obs}", fontsize=8, alpha=0.6)
 
+    if years_scaled is True:
+        x_ns = years_['years_regression'] + years_['mean']
+        label_ans = (fr'Annual-stationary μ(t) = {slope_ans:.3f}·t + {intercept_ans:.1f}, '
+        fr'$t = \rm{{year}} - \overline{{\rm{{year}}}}$')
+    else:
+        x_ns = years_['years_regression']
+        label_ans = (fr'Annual-stationary μ(t) = {slope_ans:.3f}·t + {intercept_ans:.1f}')
     ax.plot(
-        results_annual_stat_location['annual_mle']['year'], results_reg_annual_stat['mu_fit'], color=colors_reg[0], 
-        lw=1, label=f'annual stationary lin.regression · y(t) = {slope_ans:.3f}·t + {intercept_ans:.3f}'
+        results_annual_stat_location['annual_mle']['year'], results_reg_annual_stat['mu_fit'], 
+        color=colors_reg[0], lw=1, label=label_ans
         )
     ax.fill_between(
         results_annual_stat_location['annual_mle']['year'], results_reg_annual_stat['mu_ci_lower'], 
@@ -1481,16 +1613,20 @@ def plot_location_regression(
         color=colors_reg[0], alpha=0.3, lw=0, label=f'annual stationary – {confidence_level_pc*100:.2f}% CI'
         )
 
-    # non-stationary GEV
-    plt.plot(
-        years_, mu_ns, color=colors_reg[1], ls='-.',
-        label=f'non-stationary lin.regression · y(t) = {mu1_ns:.3f}·t + {mu0_ns:.3f}'
-        )
+    # ----- non-stationary GEV -----
+    if years_scaled is True:
+        x_ns = years_['years_regression'] + years_['mean']
+        label_ns = (fr'Non-stationary μ(t) = {mu1_ns:.3f}·t + {mu0_ns:.1f}, '
+        fr'$t = \rm{{year}} - \overline{{\rm{{year}}}}$')
+    else:
+        x_ns = years_['years_regression']
+        label_ns = (fr'Non-stationary μ(t) = {mu1_ns:.3f}·t + {mu0_ns:.1f}')
+    
+    plt.plot(x_ns, mu_ns, color=colors_reg[1], ls='-.', label=label_ns)
     ax.fill_between(
-        years_, mu_ns_ci_lower, mu_ns_ci_upper, color=colors_reg[1], alpha=0.25, 
+        x_ns, mu_ns_ci_lower, mu_ns_ci_upper, color=colors_reg[1], alpha=0.25, 
         label=f'non-stationary – {confidence_level_pc*100:.2f}% CI'
         )
-
 
     # ----------------------------------------------------------------------------
     # layout
@@ -1518,3 +1654,303 @@ def plot_location_regression(
     
     plt.show() if display_results else plt.close(fig)
     return fig
+
+
+def prep_for_plot(
+    result, location_geo_info, approach, confidence_level_pc, threshold_z_outlier=3, factor_m_to_mm=1000
+    ):
+    if approach == 'non-stationary':
+        df_mu = ut.extract_mu_for_all_sites_ns(result, factor_m_to_mm)
+    elif approach == 'annual-stationary':
+        df_mu = ut.extract_mu_for_all_sites_astat(result, factor_m_to_mm)
+    else:
+        raise ValueError(
+            '*approach* not properly defined. Set either as non-stationary or annual-stationary to continue...'
+            )
+    ci_mu1 = ut.get_confidence_intervals_mu1(df_mu=df_mu, confidence_level_pc=confidence_level_pc)
+    
+    rows = []
+    for loc_id in df_mu.index:
+
+        lat, lon = location_geo_info[loc_id]
+
+        mu1 = df_mu.loc[loc_id, 'mu1_mm/yr']
+        se_mu1 = df_mu.loc[loc_id, 'mu1_std_mm/yr']
+
+        ci_mu1_lower = ci_mu1.loc[loc_id]['mu1_lower']
+        ci_mu1_upper = ci_mu1.loc[loc_id]['mu1_upper']
+        
+        if ci_mu1_lower > ci_mu1_upper:
+            a, b = ci_mu1_lower, ci_mu1_upper
+            ci_mu1_upper = a
+            ci_mu1_lower = b
+        significant = not (ci_mu1_lower <= 0 <= ci_mu1_upper)
+
+        rows.append({
+            "loc_id": loc_id,
+            "lat": lat,
+            "lon": lon,
+            "mu1": mu1,
+            "mu1_std": se_mu1,
+            "mu1_ci_lower": ci_mu1_lower,
+            "mu1_ci_upper": ci_mu1_upper,
+            "significant": significant
+        })
+
+    # mark outliers
+    df_mu = ut.mark_mu1_outliers_zmethod(df_mu, label_col='mu1_mm/yr', threshold=threshold_z_outlier)
+    df_plot = ut.mark_mu1_outliers_zmethod(DataFrame(rows), label_col='mu1', threshold=threshold_z_outlier)
+
+    return df_plot, df_mu
+
+
+def convert_mu1_to_color(df_plot, mark_outlier):    
+    df = df_plot.copy()
+    
+    if mark_outlier is True:
+        max_abs = np.nanpercentile(abs(df_plot.loc[~df_plot["outliers"], "mu1"]), 98)
+    else:
+        max_abs = np.nanpercentile(abs(df_plot["mu1"]), 98)
+    norm = mcolors.TwoSlopeNorm(vmin=-max_abs, vcenter=0, vmax=max_abs)
+    def mu1_to_color(val):
+        rgba = cmap(norm(val))
+        return [int(255*c) for c in rgba[:3]]
+
+    df["color"] = df["mu1"].apply(mu1_to_color)
+    return df
+
+
+def convert_mu1STD_to_alpha(df_plot):
+    """
+    Converting uncertainty into transparency: higher uncertainty → more transparent
+    """
+    max_se = np.nanpercentile(abs(df_plot["mu1_std"]), 98)
+    def se_to_alpha(se):
+        norm_se = min(se / max_se, 1)
+        if np.isnan(norm_se):
+            alpha = int(10)
+        else:
+            alpha = int(255 * (1 - norm_se))      
+        return max(alpha, 10)  # prevent fully invisible
+
+    df_plot["alpha"] = df_plot["mu1_std"].apply(se_to_alpha)
+    return df_plot
+
+
+def convert_mu1STD_to_size(df_plot, min_size=10, max_size=200):
+    """
+    Convert uncertainty into marker size:
+    higher uncertainty → smaller marker
+    lower uncertainty → larger marker
+    """
+
+    max_se = np.nanpercentile(abs(df_plot["mu1_std"]), 98)
+
+    def se_to_size(se):
+        norm_se = min(se / max_se, 1) if not np.isnan(se) else 1
+        ms_size = max_size * (1 - norm_se)
+
+        return max(ms_size, min_size)
+
+    df_plot["marker_size"] = df_plot["mu1_std"].apply(se_to_size)
+    return df_plot
+
+
+def custom_color_for_mu1(df_plot, mark_outlier, min_size=10, max_size=200):
+
+    df_plot = convert_mu1_to_color(df_plot, mark_outlier)
+    df_plot = convert_mu1STD_to_alpha(df_plot)
+    df_plot = convert_mu1STD_to_size(df_plot, min_size=min_size, max_size=max_size)
+
+    df_plot["color_rgba"] = df_plot.apply(lambda row: row["color"] + [row["alpha"]],axis=1)
+    
+    if mark_outlier is True:
+        df_plot["color"] = df_plot.apply(
+            lambda row: OUTLIER_COLOR if row["outliers"] else row["color"],
+            axis=1
+        )
+    return df_plot
+
+
+def create_color_legend(cmap, max_abs):
+
+    values = np.linspace(-max_abs, max_abs, 5)
+
+    legend_rows = ""
+    for v in values:
+        rgba = cmap((v + max_abs) / (2 * max_abs))
+        r, g, b = [int(255*c) for c in rgba[:3]]
+
+        legend_rows += f"""
+        <div style="display:flex;align-items:center">
+            <div style="width:18px;height:12px;background:rgb({r},{g},{b});margin-right:6px"></div>
+            {v:.2f} mm/yr
+        </div>
+        """
+
+    legend_html = f"""
+    <div style="
+    position: fixed;
+    bottom: 40px;
+    left: 40px;
+    width: 180px;
+    background-color: white;
+    border-radius: 6px;
+    box-shadow: 0px 0px 6px rgba(0,0,0,0.3);
+    padding: 10px;
+    font-size: 13px;
+    z-index: 9999;
+    ">
+    <b>Trend μ₁ (mm/yr)</b><br>
+    {legend_rows}
+
+    <br>
+    <b>Transparency</b><br>
+    Bigger marker size → higher uncertainty
+    </div>
+    """
+    #    More transparent → higher uncertainty
+    # ALTERNATIVE: bigger marker size → higher uncertainty
+
+    return legend_html
+
+
+def create_gradient_legend(cmap, norm, threshold_z_method, width=180, height=15, n_steps=100):
+    """
+    Create an HTML gradient legend matching your colormap and normalization.
+
+    cmap: matplotlib colormap
+    norm: matplotlib TwoSlopeNorm or Normalize
+    width: width of the legend in px
+    height: height of the gradient bar in px
+    n_steps: number of gradient steps
+    """
+    # generate colors
+    gradient = []
+    for i in range(n_steps):
+        val = norm.vmin + i / (n_steps-1) * (norm.vmax - norm.vmin)
+        rgba = cmap(norm(val))
+        r, g, b = [int(255*c) for c in rgba[:3]]
+        gradient.append(f"rgb({r},{g},{b})")
+
+    gradient_str = ",".join(gradient)
+
+    # HTML for gradient legend
+    legend_html = f"""
+    <div style="
+        position: fixed;
+        bottom: 40px;
+        left: 40px;
+        width: {width}px;
+        font-size: 12px;
+        background-color: white;
+        border-radius: 6px;
+        box-shadow: 0px 0px 6px rgba(0,0,0,0.3);
+        padding: 6px;
+        z-index: 9999;
+    ">
+        <b>Trend μ₁ (mm/yr)</b><br>
+        <div style="
+            height: {height}px;
+            background: linear-gradient(to right, {gradient_str});
+            border: 1px solid black;
+            margin: 4px 0;
+        "></div>
+        <div style="display:flex;justify-content:space-between;">
+            <span>{norm.vmin:.2f}</span>
+            <span>0</span>
+            <span>{norm.vmax:.2f}</span>
+        </div>
+        <br>
+        <b>Transparency</b><br>
+        Bigger marker size → higher uncertainty
+        <br>
+        <b>Outlier marked</b><br>
+        <span>using modified Z-score method with threshold {threshold_z_method:.2f}· σ</span>
+    </div>
+    """
+    #    More transparent → higher uncertainty
+    # ALTERNATIVE: bigger marker size → higher uncertainty
+
+    return legend_html
+
+
+def plot_mu1_for_sites(
+    df_plot_, approach, inital_zoom, mark_outlier, threshold_z_method, 
+    file_name:str, saving_map:bool, axes_color:str='#333333'
+    ):
+    df_plot = df_plot_.copy()
+    
+    df_plot["mu1_str"] = df_plot["mu1"].map("{:.3f}".format)
+    df_plot["mu1_std_str"] = df_plot["mu1_std"].map("{:.3f}".format)
+    df_plot["mu1_ci_lower_str"] = df_plot["mu1_ci_lower"].map("{:.3f}".format)
+    df_plot["mu1_ci_upper_str"] = df_plot["mu1_ci_upper"].map("{:.3f}".format)
+    df_plot["lat_str"] = df_plot["lat"].map("{:.3f}".format)
+    df_plot["lon_str"] = df_plot["lon"].map("{:.3f}".format)
+    df_plot["status"] = df_plot["outliers"].apply(lambda x: "invalid (outlier)" if x else "valid")
+                
+    layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=df_plot,
+        get_position='[lon, lat]',
+        get_fill_color="color",
+        get_radius="marker_size",
+        pickable=True,
+    )
+
+    view_state = pdk.ViewState(
+        latitude=df_plot["lat"].mean(),
+        longitude=df_plot["lon"].mean(),
+        zoom=inital_zoom,
+    )
+    
+    if mark_outlier is True:
+        max_abs = np.nanpercentile(abs(df_plot.loc[~df_plot["outliers"], "mu1"]), 98)
+    else:
+        max_abs = np.nanpercentile(abs(df_plot["mu1"]), 98)
+    norm = mcolors.TwoSlopeNorm(vmin=-max_abs, vcenter=0, vmax=max_abs)
+    legend_html = create_gradient_legend(cmap, norm, threshold_z_method, width=260, height=15, n_steps=100)
+
+    deck = pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        map_style="https://tiles.openfreemap.org/styles/positron",
+        tooltip={
+            "html": """
+                <b>Location</b><br>
+                Lat: {lat_str}<br>
+                Lon: {lon_str}<br>
+                μ₁: {mu1_str} mm/yr<br>
+                std_error: {mu1_std_str} mm/yr<br>
+                status: {status}
+            """,
+            "style": {"backgroundColor": "lightgray", "color": axes_color, "padding": "8px"}
+        }
+        )
+
+    if saving_map:
+        today_ = str(datetime.today().date().isoformat()) 
+
+        output_path = f"../output/gev_analysis/{today_}/figures/"
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        if approach not in file_name:
+            file_name = file_name.split('.')[0] + '_' + '_'.join(approach.split(' ')) + '.html'
+        print('map stored as %s', output_path + file_name)
+        full_path = output_path + file_name
+        deck.to_html(full_path)
+
+        with open(full_path, "r", encoding="utf-8") as f:
+            html = f.read()
+
+        html = re.sub(
+            r"<title>.*?</title>", 
+            f"<title>GEV μ1 trend map ({approach})</title>", html, 
+            flags=re.IGNORECASE
+            )
+        html = html.replace("</body>", legend_html + "\n</body>")
+
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(html)
+    return deck
+    return deck

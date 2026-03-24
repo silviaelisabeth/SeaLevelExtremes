@@ -14,8 +14,9 @@ import arabic_reshaper
 import func_plotting as dbplt
 from bidi.algorithm import get_display
 from joblib import Parallel, delayed
-from numpy import isnan, unique
+from numpy import abs, isnan, median, unique
 from pandas import DataFrame, concat, read_parquet
+from scipy.stats import norm
 
 logger = logging.getLogger("mp_gev_analysis")
 
@@ -706,6 +707,72 @@ def store_location_regression(fig, loc_id, LatLon, location_info, path_child_fol
     print(f"Regression analysis for location parameter stored as {filename}")
 
 
+def extract_mu_for_all_sites_ns(results, factor_m_to_mm=1000):
+    dic_mu = dict()
+    for loc_id in results.keys():
+        try:
+            mu0, mu1, _, _ = results[loc_id]['params_hat']
+            mu0_std, mu1_std, _, _ = results[loc_id]['params_std']
+            dic_mu[loc_id] = (mu0, mu0_std, mu1, mu1_std)
+        except:
+            dic_mu[loc_id] = (None, None, None, None)
+        
+    return DataFrame(dic_mu, index=['mu0_mm', 'mu0_std_mm', 'mu1_mm/yr', 'mu1_std_mm/yr']).T*factor_m_to_mm
+
+
+def extract_mu_for_all_sites_astat(results, factor_m_to_mm=1000):
+    dic_mu = dict()
+    for loc_id in results.keys():
+        try:
+            mu0, mu1 = results[loc_id]['mu_trend']['mu0'], results[loc_id]['mu_trend']['mu1']
+            mu0_std, mu1_std = results[loc_id]['mu_trend']['mu0_se'], results[loc_id]['mu_trend']['mu1_se']
+            dic_mu[loc_id] = (mu0, mu0_std, mu1, mu1_std)
+        except:
+            dic_mu[loc_id] = (None, None, None, None)
+        
+    return DataFrame(dic_mu, index=['mu0_mm', 'mu0_std_mm', 'mu1_mm/yr', 'mu1_std_mm/yr']).T*factor_m_to_mm
+
+
+def mark_mu1_outliers_zmethod(df_plot, label_col, threshold=3):
+    mean = df_plot[label_col].mean()
+    std = df_plot[label_col].std()
+    df_plot['outliers'] = abs(df_plot[label_col] - mean) > threshold*std  # 3σ
+
+    print(f"Marked {df_plot['outliers'].sum()} outliers using modified Z-score method")
+    return df_plot
+
+
+def mark_mu1_outliers_iqr(df_plot, label_col, k=1.5):
+    Q1 = df_plot[label_col].quantile(0.25)
+    Q3 = df_plot[label_col].quantile(0.75)
+    IQR = Q3 - Q1
+
+    lower = Q1 - k * IQR
+    upper = Q3 + k * IQR
+
+    outliers = df_plot[(df_plot[label_col] < lower) | (df_plot[label_col] > upper)]
+    df_plot['outliers'] = False
+    df_plot.loc[outliers.index, 'outliers'] = True
+    print(f'marked {len(outliers)} sites as outliers in {label_col}')
+    return df_plot
+
+
+def mark_mu1_outliers_percentiles(df_plot, label_col, percentil_lower=0.02, percentil_upper=0.98):
+    lower = df_plot[label_col].quantile(percentil_lower)
+    upper = df_plot[label_col].quantile(percentil_upper)
+    df_plot['outliers'] = (df_plot[label_col] < lower) | (df_plot[label_col] > upper)
+    print(f"Marked {df_plot['outliers'].sum()} outliers using modified Z-score method")
+    return df_plot    
+    
+
+def get_confidence_intervals_mu1(df_mu, confidence_level_pc):
+    z_ci = norm.ppf(1 - (1-confidence_level_pc)/2) 
+    return DataFrame([
+        df_mu['mu1_mm/yr'] - z_ci * df_mu['mu1_std_mm/yr'],
+        df_mu['mu1_mm/yr'] + z_ci * df_mu['mu1_std_mm/yr']], index=['mu1_upper', 'mu1_lower']
+    ).T
+    
+
 def import_info_for_regression(dir_import: str) -> tuple[dict(), dict(), dict(), dict()]:
     
     file_annual_stat = dir_import + '/stationary_per_year.pkl'
@@ -745,3 +812,7 @@ def import_info_for_regression(dir_import: str) -> tuple[dict(), dict(), dict(),
             location_point_info = pickle.load(f)
         
     return results_annual_stat_all, results_nonstat_all, location_geo_info, location_point_info
+
+
+
+

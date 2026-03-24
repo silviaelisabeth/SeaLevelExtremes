@@ -14,6 +14,10 @@ from statsmodels.tools.numdiff import approx_hess
 warnings.filterwarnings("ignore", category=FutureWarning)
 logger = logging.getLogger("mp_gev_analysis")
 
+BOUNDS_SHAPE = (-2, 2)
+BOUNDS_LOCATION = (None, None)
+BOUNDS_SCALE = (1e-6, None)
+
 
 def print_and_append_notes(message:str, ls_notes:list, print_msg: bool):
     if print_msg:
@@ -110,15 +114,15 @@ def fit_gev_mle(data, init_shape=0.0):
     Uses scipy.optimize.minimize starting from (init_shape, mean, std).
     Setting init_shape=0 often stabilizes the fit【43†L540-L548】.
     """
-    init = np.array([ -init_shape, np.mean(data), np.std(data, ddof=1) ])
-    bounds = [(-10, 10), (None, None), (1e-6, None)]
+    init = np.array([-init_shape, np.mean(data), np.std(data, ddof=1)])
+    bounds = [BOUNDS_SHAPE, BOUNDS_LOCATION, BOUNDS_SCALE]
     
     res = minimize(lambda p: gev_neg_loglik(p, data), init, bounds=bounds, method="L-BFGS-B")
     if not res.success:
         raise RuntimeError("GEV MLE did not converge: " + res.message)
     
     c_ml, loc_ml, scale_ml = res.x
-    shape_ml = -c_ml  # convert to xi
+    shape_ml = -c_ml               
     loglik = -res.fun
 
     n = len(data)
@@ -201,7 +205,7 @@ def gev_bootstrap(data, B=500, seed=None):
 
 
 def compute_cov_matrix_v1(
-    gev_params: dict, data: np.ndarray, is_nonstationary:bool, years: np.ndarray = None
+    gev_params: dict, data: np.ndarray, is_nonstationary:bool, years_scaled: bool, years: np.ndarray = None
     ) -> np.ndarray:
     """
     Compute the covariance matrix of fitted GEV parameters using a numerically stable Hessian.
@@ -224,9 +228,12 @@ def compute_cov_matrix_v1(
     """
     messages = ''
     if is_nonstationary:
-        # Non-stationary location μ(t) = μ0 + μ1 * t
-        t = (years - gev_params['years_mean']) / gev_params['years_std']
-
+        # Non-stationary location μ(t) = μ0 + μ1 * t; with centering around year_mean of years or without 
+        if years_scaled is True:
+            t = years - gev_params['years_mean']
+        else:
+            t = years
+            
         def neg_loglik(theta):
             mu0, mu1, log_sigma, xi = theta
             sigma = np.exp(log_sigma)
@@ -348,13 +355,34 @@ def fit_stationary_gev_incl_uncertainty(loc_id, data, B, seed, ls_notes, print_m
     
 
 def fit_non_stationary_gev_incl_uncertainty(
-    loc_id, data, stationary, uncertainty, years, ls_notes, print_msg, seed=None
+    loc_id, data, x0, uncertainty, years, years_scaled, ls_notes, print_msg, B, seed=None
     ):
+    """_summary_
+
+    Args:
+        loc_id (_type_): _description_
+        data (_type_): _description_
+        x0 (_type_): _description_
+        uncertainty (_type_): _description_
+        years (_type_): _description_
+        years_scaled (_type_): _description_
+        ls_notes (_type_): _description_
+        print_msg (_type_): _description_
+        B (_type_): _description_
+        seed (_type_, optional): _description_. Defaults to None.
+
+    Raises:
+        ValueError: _description_
+        ValueError: _description_
+
+    Returns:
+        _type_: _description_
+    """
     if uncertainty is None:
         uncertainty = 'delta'
 
-    t = (years - years.mean()) / years.std()   
-    x0 = [stationary['location'], 0.0, stationary['scale'], stationary['shape']]
+    t = years - years.mean() if years_scaled is True else years
+    #x0 = [stationary['location'], 0.0, stationary['scale'], stationary['shape']]
     
     def neg_loglik(params):
         mu0, mu1, sigma, xi = params
@@ -399,7 +427,7 @@ def fit_non_stationary_gev_incl_uncertainty(
 
         try:
             cov_ns, hessian_eigenvalues, messages = compute_cov_matrix_v1(
-                gev_params=nonstationary, data=data, years=years, is_nonstationary=True
+                gev_params=nonstationary, data=data, years=years, years_scaled=years_scaled, is_nonstationary=True
                 )
             nonstationary['Hessian eigenvalues'] = hessian_eigenvalues
             ls_notes = print_and_append_notes(message=messages, ls_notes=ls_notes, print_msg=print_msg)
@@ -438,45 +466,11 @@ def fit_non_stationary_gev_incl_uncertainty(
             nonstationary['params_std'] = params_std
         else:
             ls_notes = print_and_append_notes(
-                message=f"Loc {loc_id} | Delta Method failed, falling back to Fisher Information",
-                ls_notes=ls_notes, print_msg=print_msg
-                )
-            uncertainty = "fisher"
-
-    if uncertainty == "fisher":
-        ls_notes = print_and_append_notes(
-            message=f"Loc {loc_id} | Computing Fisher Information for non-stationary GEV...",
-            ls_notes=ls_notes, print_msg=print_msg
-            )
-                    
-        try:
-            cov = _compute_fisher_info_generic(neg_loglik, params_hat)
-            if cov is not None and np.all(np.isfinite(cov)):
-                std_errors = np.sqrt(np.diag(cov))
-                if np.all(np.isfinite(std_errors)):
-                    nonstationary['params_std'] = std_errors
-                else:
-                    ls_notes = print_and_append_notes(
-                        message=f"Loc {loc_id} | Fisher Information failed (not all values computed), falling back to bootstrap",
-                        ls_notes=ls_notes, print_msg=print_msg
-                    )
-                    uncertainty = "bootstrap"
-                    B = 300
-            else:
-                ls_notes = print_and_append_notes(
-                    message=f"Loc {loc_id} | Fisher Information failed, falling back to bootstrap",
-                    ls_notes=ls_notes, print_msg=print_msg
-                    )
-                uncertainty = "bootstrap"
-                B = 150
-        except Exception as e:
-            ls_notes = print_and_append_notes(
-                message=f"Loc {loc_id} | Fisher Information exception: {e}, falling back to bootstrap",
+                message=f"Loc {loc_id} | Delta Method failed, falling back to bootstrapping",
                 ls_notes=ls_notes, print_msg=print_msg
                 )
             uncertainty = "bootstrap"
-            B = 300
-    
+
     if uncertainty == "bootstrap":
         ls_notes = print_and_append_notes(
             message=f"Loc {loc_id} | Computing bootstrap uncertainty for non-stationary GEV...",
@@ -486,10 +480,6 @@ def fit_non_stationary_gev_incl_uncertainty(
         if seed is not None:
             random.seed(seed)
         
-        #mu0, mu1, _, _ = params_hat
-        #t_std = (years - years.mean()) / years.std()
-        #mu_t = mu0 + mu1 * t_std
-
         mu0_samples, mu1_samples, sigma_samples, xi_samples = [], [], [], []
 
         for _ in range(B):
@@ -514,8 +504,80 @@ def fit_non_stationary_gev_incl_uncertainty(
     return nonstationary, ls_notes
 
 
+def fit_pooled_stationary_gev_with_uncertainty(
+    loc_id, data, year: int|None= None, B:int=300, seed:int=42, print_msg=False
+    ):
+    ls_notes = []
+    n = len(data)
+
+    ls_notes = print_and_append_notes(
+        message=f'\t\tLoc {loc_id} | Compute stationary GEV incl uncertainty', 
+        ls_notes=ls_notes, print_msg=print_msg
+        )   
+
+    if n < 10:
+        message = (
+            f'\n\t Loc {loc_id} | Warning: Only {n} observations in {year} if year else '
+            + '. Need at least 10 for reliable GEV fit.'
+        )
+        ls_notes = print_and_append_notes(message=message, ls_notes=ls_notes, print_msg=print_msg)
+
+    try:
+        stationary, ls_notes = fit_stationary_gev_incl_uncertainty(
+            loc_id=loc_id, data=data, B=B, seed=seed, ls_notes=ls_notes, print_msg=print_msg, 
+            )
+        pooled_gev = dict({'stationary': stationary})
+
+    except Exception as e:
+        message = f"Failed to conduct stationary GEV fitting due to error: {e}"
+        ls_notes.append(message)
+        return {'stationary': None}, ls_notes
+    
+    return pooled_gev, ls_notes
+
+
+def fit_pooled_nonstat_gev_with_uncertainty(
+    loc_id, data, x0_stat, years_scaled: bool, year: int|None= None, years: list | None = None, 
+    uncertainty_ns:str|None ='delta', B:int=300, seed:int=42, print_msg=False
+    ):
+    ls_notes = []
+    n = len(data)
+    
+    if n < 10:
+        message = (
+            f'\n\t Loc {loc_id} | Warning: Only {n} observations'
+            + f' in {year} if year else '
+            + '. Need at least 10 for reliable GEV fit.'
+        )
+        ls_notes = print_and_append_notes(message=message, ls_notes=ls_notes, print_msg=print_msg)
+
+    try:
+        message = f'\t\tLoc {loc_id} | Compute non-stationary GEV incl uncertainty'
+        ls_notes = print_and_append_notes(message=message, ls_notes=ls_notes, print_msg=print_msg)
+
+        if n < 20:
+            message = f'Loc {loc_id} | Warning: Non-stationary GEV needs ≥20 observations but has {n}, '
+            message += 'skipping non-stationary GEV...'
+            ls_notes = print_and_append_notes(message=message, ls_notes=ls_notes, print_msg=print_msg)
+            return {'nonstationary': None}, ls_notes
+
+        # x0_stat = [stationary['location'], 0.0, stationary['scale'], stationary['shape']]
+        nonstationary, ls_notes = fit_non_stationary_gev_incl_uncertainty(
+            loc_id=loc_id, data=data, x0=x0_stat, years=years, uncertainty=uncertainty_ns, 
+            ls_notes=ls_notes, print_msg=print_msg, years_scaled=years_scaled, B=B, seed=seed
+            )
+        pooled_gev = dict({'nonstationary': nonstationary})
+
+    except Exception as e:
+        message = f"Failed to conduct GEV fitting due to error: {e}"
+        ls_notes.append(message)
+        return {'nonstationary': None}, ls_notes
+    
+    return pooled_gev, ls_notes
+
+
 def fit_pooled_gev_with_uncertainty(
-    loc_id, data, year: int|None= None, years: list | None = None, uncertainty_ns:str|None ='delta', 
+    loc_id, data, years_scaled: bool, year: int|None= None, years: list | None = None, uncertainty_ns:str|None ='delta', 
     B:int=300, seed:int=42, print_msg=False
     ):
     ls_notes = []
@@ -523,7 +585,8 @@ def fit_pooled_gev_with_uncertainty(
 
     # ---- STEP 1: Get stationary ----
     ls_notes = print_and_append_notes(
-        message=f'\t\tLoc {loc_id} | Compute stationary GEV incl uncertainty', ls_notes=ls_notes, print_msg=print_msg
+        message=f'\t\tLoc {loc_id} | Compute stationary GEV incl uncertainty', 
+        ls_notes=ls_notes, print_msg=print_msg
         )   
 
     if n < 10:
@@ -549,10 +612,12 @@ def fit_pooled_gev_with_uncertainty(
             message += 'skipping non-stationary GEV...'
             ls_notes = print_and_append_notes(message=message, ls_notes=ls_notes, print_msg=print_msg)
             return {'stationary': stationary, 'nonstationary': None}, ls_notes
-    
+
+        x0_stat = [stationary['location'], 0.0, stationary['scale'], stationary['shape']]
+        
         nonstationary, ls_notes = fit_non_stationary_gev_incl_uncertainty(
-            loc_id=loc_id, data=data, stationary=stationary, years=years, uncertainty=uncertainty_ns, 
-            ls_notes=ls_notes, print_msg=print_msg
+            loc_id=loc_id, data=data, x0=x0_stat, years=years, uncertainty=uncertainty_ns, 
+            ls_notes=ls_notes, print_msg=print_msg, years_scaled=years_scaled, B=B, seed=seed
             )
         pooled_gev.update({'nonstationary': nonstationary})
 
@@ -1078,6 +1143,9 @@ def pooled_gev_per_single_location(
     return_periods,
     ls_t_eval,
     location_info,
+    B,
+    seed,
+    years_scaled,
     ref_year_rp=1961, 
     t_ref_rp=50,
     min_years=10,
@@ -1114,7 +1182,10 @@ def pooled_gev_per_single_location(
         loc_id=loc_id,
         data=data,
         years=years,
+        B=B, 
+        seed=seed, 
         print_msg=False,
+        years_scaled=years_scaled
     )
 
     logger.info(
@@ -1242,7 +1313,7 @@ def fit_annual_gev_mle(df, ls_notes, col_data='storm_surge', col_year='sim_year'
     return DataFrame(flattened).sort_values('year').reset_index(drop=True)
 
 
-def regress_location_trend(annual_df):
+def regress_location_trend(annual_df, years_scaled):
     """
     Fits linear trend: mu ~ standardized year
     Returns dict with mu0, mu1, SEs for both, plus mean and std of years
@@ -1251,7 +1322,7 @@ def regress_location_trend(annual_df):
     years_mean = years.mean()
     years_std = years.std(ddof=0)  # same as np.std with population formula
 
-    x_std = (years - years_mean) / years_std
+    x_std = years - years_mean if years_scaled is True else years
 
     X = sm.add_constant(x_std)  # add intercept
     y = annual_df['location'].values
@@ -1267,14 +1338,14 @@ def regress_location_trend(annual_df):
     }
     
 
-def fit_location(loc_id, df, ls_notes):
+def fit_location(loc_id, df, years_scaled, ls_notes):
     """
     Fits annual stationary GEV MLEs and computes mu trend regression
     """
-    logger.info('Loc {loc_id} | compute annual GEV using MLE...')
+    logger.info(f'Loc {loc_id} | compute annual GEV using MLE...')
     annual_df = fit_annual_gev_mle(df, ls_notes=ls_notes)
-    logger.info('Loc {loc_id} | compute location trend regression...')
-    trend_results = regress_location_trend(annual_df)
+    logger.info(f'Loc {loc_id} | compute location trend regression...')
+    trend_results = regress_location_trend(annual_df, years_scaled)
 
     return loc_id, {
         'annual_mle': annual_df,
@@ -1282,53 +1353,45 @@ def fit_location(loc_id, df, ls_notes):
     }
 
 
-def fit_all_locations(dic_data_per_location, n_jobs=-1):
+def fit_all_locations(dic_data_per_location, years_scaled, n_jobs=-1):
     results = Parallel(n_jobs=n_jobs, backend='loky')(
-        delayed(fit_location)(loc_id, df, None) for loc_id, df in dic_data_per_location.items()
+        delayed(fit_location)(loc_id, df, years_scaled, None) for loc_id, df in dic_data_per_location.items()
     )
     return dict(results)
 
 
-def annual_stationary_trend(annual_df, confidence_level_pc, factor_m_to_mm=1000):
-    """
+def annual_stationary_trend(x_range_years, annual_df, confidence_level_pc, factor_m_to_mm):
+    """_summary_
     Compute weighted linear trend of annual GEV location parameter (mu) with standardized years.
-    
-    Parameters:
-        annual_df : pd.DataFrame
-            Must contain columns ['year', 'location', 'n_obs']
-        factor_m_to_mm : float
-            Factor to multiply mu (default converts m -> mm)
-    
+
+    Args:
+        x_range_years (_type_): _description_
+        annual_df (_type_): _description_
+        confidence_level_pc (_type_): _description_
+        factor_m_to_mm (_type_): _description_
+
     Returns:
-        dict with:
-            mu_trend : dict with mu0, mu1, mu0_se, mu1_se
-            mu_fit : np.array of fitted values (in mm)
-            mu_ci_upper, mu_ci_lower : np.array of 95% CI (in mm)
-            years_std : standardized years used
+        _type_: _description_
     """
     
-    x = annual_df['year'].values
     y = annual_df['location'].values
     weights = annual_df['n_obs'].values
+    X = sm.add_constant(x_range_years)
     
-    x_mean = np.mean(x)
-    x_std_val = np.std(x, ddof=0)
-    x_std = (x - x_mean) / x_std_val
-    
-    X = sm.add_constant(x_std)
-    
+    # weighted least-square regression with parameters given in m and years (auto-scaled, if selected)
     model = sm.WLS(y, X, weights=weights).fit()
     
     mu0_mm = model.params[0] * factor_m_to_mm
     mu1_mm = model.params[1] * factor_m_to_mm
     mu0_se_mm = model.bse[0] * factor_m_to_mm
     mu1_se_mm = model.bse[1] * factor_m_to_mm
-    
-    mu_fit = mu0_mm + mu1_mm * x_std
+    print(f'annual stat LSR results {mu0_mm:.2f}mm + {mu1_mm:.2f}mm • t')
+
+    mu_fit = mu0_mm + mu1_mm * x_range_years
 
     z = norm.ppf(1 - (1-confidence_level_pc)/2)
-    mu_ci_upper = mu_fit + z * mu1_se_mm * x_std
-    mu_ci_lower = mu_fit - z * mu1_se_mm * x_std
+    mu_ci_upper = mu_fit + z * mu1_se_mm * x_range_years
+    mu_ci_lower = mu_fit - z * mu1_se_mm * x_range_years
     
     return {
         'mu_trend': {
@@ -1340,44 +1403,95 @@ def annual_stationary_trend(annual_df, confidence_level_pc, factor_m_to_mm=1000)
         'mu_fit': mu_fit,
         'mu_ci_upper': mu_ci_upper,
         'mu_ci_lower': mu_ci_lower,
-        'years_std': x_std,
-        'x_mean': x_mean,
-        'x_std_val': x_std_val
     }
 
 
-def prepare_for_regression(
-    annual_stationary, nonstationary, years_mean, years_std, hindcast_start, hindcast_end, confidence_level_pc, 
-    factor_m_to_mm
-    ):
-    
-    years_ = np.arange(hindcast_start, hindcast_end+1)
-    years_autoscaled = (years_ - years_mean) / years_std
+def non_stationary_trend(x_range_years, nonstationary, confidence_level_pc, factor_m_to_mm):
+    """_summary_
 
+    Args:
+        x_range_years (_type_): _description_
+        nonstationary (_type_): _description_
+        confidence_level_pc (_type_): _description_
+        factor_m_to_mm (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    mu0_ns = nonstationary['params_hat'][0]*factor_m_to_mm
+    mu1_ns = nonstationary['params_hat'][1]*factor_m_to_mm
+
+    mu_ns = mu0_ns + mu1_ns * x_range_years
+
+    z = norm.ppf(1 - (1-confidence_level_pc)/2)
+    cov = nonstationary['cov'][:2, :2] * factor_m_to_mm**2
+    mu_var = cov[0,0] + 2 * cov[0,1] * x_range_years + cov[1,1] * x_range_years**2  
+    mu_ns_ci_upper = mu_ns + z * np.sqrt(mu_var)
+    mu_ns_ci_lower = mu_ns - z * np.sqrt(mu_var)
+    
+    print(f'non-stationary regression results {mu0_ns:.2f}mm + {mu1_ns:.2f}mm • t')
+    return {
+        'mu_trend': {
+            'mu0': mu0_ns,
+            'mu1': mu1_ns,
+        },
+        'mu_fit': mu_ns,
+        'mu_ci_upper': mu_ns_ci_upper,
+        'mu_ci_lower': mu_ns_ci_lower,
+    }
+
+
+# --------------- TREND-REGRESSION --------------------
+def prepare_for_regression(
+    annual_stationary, nonstationary, confidence_level_pc, factor_m_to_mm, years_scaled
+    ):
+    # ------------ general preparation -------------------    
     x_ans = annual_stationary['annual_mle'].year.values
+    x_mean = np.mean(x_ans)
+    x_std_val = np.std(x_ans, ddof=0)
+    x_std = x_ans - x_mean              # possible for centering around mean but not standardization to keep the unit
+    
+    # decide for year standardization or not
+    years_ = x_std if years_scaled is True else x_ans
+    
     y_ans = annual_stationary['annual_mle'].location.values*factor_m_to_mm
     weights_ans = annual_stationary['annual_mle'].n_obs.values
-
+    
     # ------------ stationary -------------------
-    results_reg_annual_stat = annual_stationary_trend(annual_stationary['annual_mle'], confidence_level_pc)
+    results_reg_annual_stat = annual_stationary_trend(
+        x_range_years=years_, annual_df=annual_stationary['annual_mle'], 
+        confidence_level_pc=confidence_level_pc, factor_m_to_mm=factor_m_to_mm
+        )
 
     intercept_ans = results_reg_annual_stat['mu_trend']['mu0']
     slope_ans = results_reg_annual_stat['mu_trend']['mu1']
 
     # ------------ non-stationary -------------------
-    mu0_ns = nonstationary['params_hat'][0]*factor_m_to_mm
-    mu1_ns = nonstationary['params_hat'][1]*factor_m_to_mm
-
-    mu_ns = mu0_ns + mu1_ns * years_autoscaled
-
-    z = norm.ppf(1 - (1-confidence_level_pc)/2)
-    cov = nonstationary['cov'][:2, :2] * factor_m_to_mm**2
-    mu_var = cov[0,0] + 2 * cov[0,1] * years_autoscaled + cov[1,1] * years_autoscaled**2  # shape (67,)
-    mu_ns_ci_upper = mu_ns + z * np.sqrt(mu_var)
-    mu_ns_ci_lower = mu_ns - z * np.sqrt(mu_var)
+    results_reg_non_stat = non_stationary_trend(
+        x_range_years=years_, nonstationary=nonstationary, 
+        confidence_level_pc=confidence_level_pc, factor_m_to_mm=factor_m_to_mm
+    )
     
-    return years_, {
-        'stationary': (x_ans, y_ans, weights_ans, results_reg_annual_stat, slope_ans, intercept_ans), 
-        'nonstationary': (mu_ns, mu1_ns, mu0_ns, mu_ns_ci_lower, mu_ns_ci_upper),
+    return {
+        'years_regression': years_, 
+        'scaled': years_scaled, 
+        'mean': x_mean, 
+        'std': x_std_val
+        }, {
+        'stationary': (
+            x_ans, 
+            y_ans, 
+            weights_ans, 
+            results_reg_annual_stat, 
+            slope_ans, 
+            intercept_ans
+            ), 
+        'nonstationary': (
+            results_reg_non_stat['mu_fit'], 
+            results_reg_non_stat['mu_trend']['mu1'],
+            results_reg_non_stat['mu_trend']['mu0'],
+            results_reg_non_stat['mu_ci_lower'],
+            results_reg_non_stat['mu_ci_upper']
+            ),
         }
 
