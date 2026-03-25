@@ -174,6 +174,46 @@ def adding_plot_and_text(message:str, ls_messages:list[str], print_msg:bool):
     return ls_messages
 
 
+def define_filename_per_parameter(parameter, approach, mark_outlier):    
+    if parameter == 'mu1':
+        file_name = 'Map_μ₁_inclCI_markedOutlier' if mark_outlier is True else 'Map_μ₁_inclCI_all'
+        
+    elif parameter == 'mu': 
+        file_name = 'Map_μ_inclCI_markedOutlier' if mark_outlier is True else 'Map_μ_inclCI_all'
+
+    elif parameter == 'scale': 
+        file_name = 'Map_scale_inclCI_markedOutlier' if mark_outlier is True else 'Map_scale_inclCI_all'
+
+    elif parameter == 'shape': 
+        file_name = f'Map_shape_inclCI_markedOutlier' if mark_outlier is True else 'Map_shape_inclCI_all'
+    
+    else:
+        raise ValueError('Could not identify parameter...')
+    
+    file_name +=f'_{approach}'
+    return file_name
+
+
+def define_title_and_label_per_parameter(parameter, unit, approach):
+    if parameter == 'mu1':
+        title = f"Map of location parameter $μ_1$ · {approach}"
+        label_colormap = f"Location trend $μ_1$, {unit}"
+    
+    elif parameter == 'mu':
+        title = f"Map of location parameter $μ$ · {approach}"
+        label_colormap = f"Location $μ$, {unit}"
+    
+    elif parameter == 'scale':
+        title = f"Map of scale parameter $σ$ · {approach}"
+        label_colormap = f"Scale $σ$, {unit}"
+    
+    elif parameter == 'shape':
+        title = f"Map of shape parameter $ξ$ · {approach}"
+        label_colormap = f"Shape trend $ξ$, {unit}"
+    
+    return title, label_colormap
+    
+
 def prepare_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> DataFrame:
     """Calculate target years and filter to hindcast period."""
     data['target_year'] = data['sim_year'] + data['lead']
@@ -708,7 +748,27 @@ def store_location_regression(fig, loc_id, LatLon, location_info, path_child_fol
     print(f"Regression analysis for location parameter stored as {filename}")
 
 
+def extract_scale_and_shape_for_all_sites_ns(results):
+    # Note how the parameters are stored: 'location', 'location_trend', 'scale', 'shape'
+    
+    dic_para = dict()
+    for loc_id in results.keys():
+        try:
+            _, _, scale, shape = results[loc_id]['params_hat']
+            _, _, scale_std, shape_std = results[loc_id]['params_std']
+            dic_para[loc_id] = (scale, scale_std, shape, shape_std)
+        except:
+            dic_para[loc_id] = (None, None, None, None)
+
+    df = DataFrame(dic_para, index=['scale_mm', 'scale_std_mm', 'shape', 'shape_std']).T
+    df['scale_mm'] = df.scale_mm*FACTORMTOMM
+    df['scale_std_mm'] = df.scale_std_mm*FACTORMTOMM
+    return df
+
+
 def extract_mu_for_all_sites_ns(results):
+    # Note how the parameters are stored: 'location', 'location_trend', 'scale', 'shape'
+    
     dic_mu = dict()
     for loc_id in results.keys():
         try:
@@ -718,36 +778,71 @@ def extract_mu_for_all_sites_ns(results):
         except:
             dic_mu[loc_id] = (None, None, None, None)
         
-    return DataFrame(dic_mu, index=['mu0_mm', 'mu0_std_mm', 'mu1_mm/yr', 'mu1_std_mm/yr']).T*FACTORMTOMM
+    return DataFrame(dic_mu, index=['mu_mm', 'mu_std_mm', 'mu1_mm/yr', 'mu1_std_mm/yr']).T*FACTORMTOMM
+
+
+def extract_scale_and_shape_for_all_sites_astat(results):
+    # Note the parameters and STD are calculated as average of all years analyzed
+
+    dic_para = dict()
+    for loc_id in results.keys():
+        try:
+            dic_para[loc_id] = (
+                results[loc_id]['annual_mle']['scale'].mean(), results[loc_id]['annual_mle']['scale'].std(),
+                results[loc_id]['annual_mle']['shape'].mean(), results[loc_id]['annual_mle']['shape'].std()
+                )
+        except:
+            dic_para[loc_id] = (None, None, None, None)
+    
+    df = DataFrame(dic_para, index=['scale_mm', 'scale_std_mm', 'shape', 'shape_std']).T
+    df['scale_mm'] = df.scale_mm*FACTORMTOMM
+    df['scale_std_mm'] = df.scale_std_mm*FACTORMTOMM
+    return df
 
 
 def extract_mu_for_all_sites_astat(results):
     dic_mu = dict()
     for loc_id in results.keys():
         try:
-            mu0, mu1 = results[loc_id]['mu_trend']['mu0'], results[loc_id]['mu_trend']['mu1']
-            mu0_std, mu1_std = results[loc_id]['mu_trend']['mu0_se'], results[loc_id]['mu_trend']['mu1_se']
-            dic_mu[loc_id] = (mu0, mu0_std, mu1, mu1_std)
+            dic_mu[loc_id] = (
+                results[loc_id]['mu_trend']['mu0'], results[loc_id]['mu_trend']['mu0_se'], 
+                results[loc_id]['mu_trend']['mu1'], results[loc_id]['mu_trend']['mu1_se']
+                )
         except:
             dic_mu[loc_id] = (None, None, None, None)
         
-    return DataFrame(dic_mu, index=['mu0_mm', 'mu0_std_mm', 'mu1_mm/yr', 'mu1_std_mm/yr']).T*FACTORMTOMM
+    return DataFrame(dic_mu, index=['mu_mm', 'mu_std_mm', 'mu1_mm/yr', 'mu1_std_mm/yr']).T*FACTORMTOMM
+
+
+def extract_scale_and_shape_for_all_sites_stat(results):
+    dic_para = dict()
+    for loc_id in results.keys():
+        try:
+            dic_para[loc_id] = (
+                results[loc_id]['scale'], results[loc_id]['scale_std'], 
+                results[loc_id]['shape'], results[loc_id]['shape_std']
+                )
+        except:
+            dic_para[loc_id] = (None, None, None, None)
+    
+    df = DataFrame(dic_para, index=['scale_mm', 'scale_std_mm', 'shape', 'shape_std']).T
+    df['scale_mm'] = df.scale_mm*FACTORMTOMM
+    df['scale_std_mm'] = df.scale_std_mm*FACTORMTOMM
+    return df
 
 
 def extract_mu_for_all_sites_stat(results):
     dic_mu = dict()
     for loc_id in results.keys():
         try:
-            mu0 = results[loc_id]['location']
-            mu0_std = results[loc_id]['location_std']
-            dic_mu[loc_id] = (mu0, mu0_std)
+            dic_mu[loc_id] = (results[loc_id]['location'], results[loc_id]['location_std'])
         except:
             dic_mu[loc_id] = (None, None)
         
-    return DataFrame(dic_mu, index=['mu0_mm', 'mu0_std_mm']).T*FACTORMTOMM
+    return DataFrame(dic_mu, index=['mu_mm', 'mu_std_mm']).T*FACTORMTOMM
 
 
-def mark_mu1_outliers_zmethod(df_plot, label_col, threshold=3):
+def mark_outliers_zmethod(df_plot, label_col, threshold=3):
     mean = df_plot[label_col].mean()
     std = df_plot[label_col].std()
     df_plot['outliers'] = abs(df_plot[label_col] - mean) > threshold*std  # 3σ
@@ -756,7 +851,7 @@ def mark_mu1_outliers_zmethod(df_plot, label_col, threshold=3):
     return df_plot
 
 
-def mark_mu1_outliers_iqr(df_plot, label_col, k=1.5):
+def mark_outliers_iqr(df_plot, label_col, k=1.5):
     Q1 = df_plot[label_col].quantile(0.25)
     Q3 = df_plot[label_col].quantile(0.75)
     IQR = Q3 - Q1
@@ -771,7 +866,7 @@ def mark_mu1_outliers_iqr(df_plot, label_col, k=1.5):
     return df_plot
 
 
-def mark_mu1_outliers_percentiles(df_plot, label_col, percentil_lower=0.02, percentil_upper=0.98):
+def mark_outliers_percentiles(df_plot, label_col, percentil_lower=0.02, percentil_upper=0.98):
     lower = df_plot[label_col].quantile(percentil_lower)
     upper = df_plot[label_col].quantile(percentil_upper)
     df_plot['outliers'] = (df_plot[label_col] < lower) | (df_plot[label_col] > upper)
@@ -779,22 +874,38 @@ def mark_mu1_outliers_percentiles(df_plot, label_col, percentil_lower=0.02, perc
     return df_plot    
     
 
-def get_confidence_intervals_mu1(df_mu, confidence_level_pc):
+def get_confidence_intervals_from_parameter(df_para, parameter, confidence_level_pc):
     z_ci = norm.ppf(1 - (1-confidence_level_pc)/2) 
-    return DataFrame([
-        df_mu['mu1_mm/yr'] - z_ci * df_mu['mu1_std_mm/yr'],
-        df_mu['mu1_mm/yr'] + z_ci * df_mu['mu1_std_mm/yr']], index=['mu1_upper', 'mu1_lower']
-    ).T
     
+    if parameter == 'mu':
+        col_para = 'mu_mm'
+        col_std = 'mu_std_mm'
+        columns_label = ['mu_upper', 'mu_lower']
+    
+    elif parameter == 'mu1':
+        col_para = 'mu1_mm/yr'
+        col_std = 'mu1_std_mm/yr'
+        columns_label = ['mu1_upper', 'mu1_lower']
+    
+    elif parameter == 'scale':
+        col_para = 'scale_mm'
+        col_std = 'scale_std_mm'
+        columns_label = ['scale_upper', 'scale_lower']
+            
+    elif parameter == 'shape':
+        col_para = 'shape'
+        col_std = 'shape_std'
+        columns_label = ['shape_upper', 'shape_lower']
+    
+    else:
+        raise ValueError(f'Could not identify valid parameter {parameter}, skipping...')
+    
+    return DataFrame([
+        df_para[col_para] - z_ci * df_para[col_std],
+        df_para[col_para] + z_ci * df_para[col_std]], index=columns_label
+    ).T, col_para
 
-def get_confidence_intervals_mu(df_mu, confidence_level_pc):
-    z_ci = norm.ppf(1 - (1-confidence_level_pc)/2) 
-    return DataFrame([
-        df_mu['mu0_mm'] - z_ci * df_mu['mu0_std_mm'],
-        df_mu['mu0_mm'] + z_ci * df_mu['mu0_std_mm']], index=['mu0_upper', 'mu0_lower']
-    ).T
-    
-    
+
 def import_info_for_regression(dir_import: str) -> tuple[dict(), dict(), dict(), dict()]:
     
     file_annual_stat = dir_import + '/stationary_per_year.pkl'
@@ -847,3 +958,12 @@ def import_pickle_data(dir_import, pkl_file):
             results_import_all = pickle.load(f)
     return results_import_all
 
+
+def remove_nan_sites(df_plot):
+    ls_nan_loc = []
+    for en, a in enumerate(df_plot.alpha):
+        if isnan(a):
+            ls_nan_loc.append(en)
+    print(f'{len(ls_nan_loc)} missing location information')
+
+    return df_plot.dropna()

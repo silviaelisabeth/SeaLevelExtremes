@@ -5,7 +5,9 @@ from datetime import datetime
 from pathlib import Path
 
 import cmcrameri.cm as cmc
+import contextily as ctx
 import func_utils as ut
+import geopandas as gpd
 import matplotlib
 import matplotlib.colors as mcolors
 import matplotlib.gridspec as gridspec
@@ -15,7 +17,9 @@ import seaborn as sns
 from cmcrameri import cm
 from matplotlib import rcParams
 from matplotlib.axes import Axes
+from matplotlib.cm import ScalarMappable
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 from pandas import DataFrame
 from statsmodels.regression.linear_model import RegressionResultsWrapper
 
@@ -37,6 +41,7 @@ PALETTE_NAME = "roma"
 palette_func = getattr(cmc, PALETTE_NAME)
 CMAP = cm.managua_r
 OUTLIER_COLOR = [200, 50, 200, 180] #< gold-yellow | [220, 50, 50, 180] #< red # [253, 253, 253, 180] #< white
+OUTLIER_MARKER_SIZE = 6
 FACTORMTOMM = 1000
 
 
@@ -1357,16 +1362,17 @@ def prepare_return_level_from_reference(result_loc, t_eval_ex, ls_t_eval, return
     return ls_return_period_evolution_stat, ls_return_period_evolution_ns
 
 
-
 def plot_equivalent_return_period_evolution(
-    ax, T_ref, t_ref, loc_id, return_period_ns, color_ns='#008A80FF', axes_color='#333333', ci_level=90, fs=12
+    ax, T_ref, t_ref, loc_id, return_period_ns, color_ns='#008A80FF', axes_color='#333333', plot_reference=True, 
+    ci_level=90, fs=12
     ):
     
     years = return_period_ns.index
 
-    ax.axhline(T_ref, color='gray', lw=1, ls='--', alpha=0.6, label=f"Original {T_ref}-year")
+    if plot_reference is True:
+        ax.axhline(T_ref, color='gray', lw=1, ls='--', alpha=0.6, label=f"Original {T_ref}-year")
 
-    ax.plot(return_period_ns.return_period_mean, color=color_ns, label=f"return period (mean)")
+    ax.plot(return_period_ns.return_period_median, color=color_ns, label=f"return period (median)")
     ax.fill_between(
         years, return_period_ns.return_period_lower.values, return_period_ns.return_period_upper.values, 
         color=color_ns, alpha=0.3, lw=0, label=f"{ci_level}% confidence interval"
@@ -1498,28 +1504,6 @@ def plot_pooled_analysis_v2(
         return_period_ns=return_period_ns, color_ns=colors_models[1], ci_level=confidence_interval_pc*100, 
         fs=fontsize*0.7
     )
-        
-    #ls_return_period_evolution_stat, ls_return_period_evolution_ns = prepare_return_level_from_reference(
-    #result_loc=result, t_eval_ex=t_eval_base, ls_t_eval=ls_t_eval, return_period_base=return_period_base
-    #)
-    #plot_equivalent_return_period_bar_v1(
-    #    ls_return_period_evolution_stat=ls_return_period_evolution_stat,
-    #    ls_return_period_evolution_ns=ls_return_period_evolution_ns,
-    #    return_period_ex=return_period_base, t_eval_base=t_eval_base, colors=colors_return_period, width=width_bar,
-    #    axes_color='#333333', fontsize=fontsize, ax=ax_bottom_left, leg_position=leg_position_rl
-    #)
-    
-    #plot_equivalent_return_period(
-    #    ax=ax_bottom_left, ls_t_eval=ls_t_eval, return_period_ex=return_period_base, colors=colors_return_period, 
-    #    ls_return_period_evolution_stat=ls_return_period_evolution_stat, 
-    #    ls_return_period_evolution_ns=ls_return_period_evolution_ns, axes_color='#333333', fontsize=fontsize
-    #)
-    
-    #plot_level_evolution_v2(
-    #    return_levels=result['return_levels'].reset_index(), color_levels=color_palette, plot_t_eval=plot_t_eval,
-    #    T_values=return_periods, alpha_levels=[0.35, 0.25, 0.05], fontsize=fontsize, axes_color=axes_color, 
-    #    ax=ax_bottom_left, 
-    #)
 
     # ----------------------------------------------------------------------------
     # Plot BOTTOM-RIGHT: Model comparison
@@ -1655,90 +1639,82 @@ def plot_location_regression(
 
 
 def prep_for_plot(
-    result, location_geo_info, approach, parameter, confidence_level_pc, mark_outlier, 
-    threshold_z_outlier=3
+    df, location_geo_info, approach, parameter, confidence_level_pc, mark_outlier, threshold_z_outlier=3
     ):
     if approach == 'non-stationary':
-        df_mu = ut.extract_mu_for_all_sites_ns(result)
+        if parameter in ('mu', 'mu1'):
+            df_para = ut.extract_mu_for_all_sites_ns(df)
+        else:
+            df_para = ut.extract_scale_and_shape_for_all_sites_ns(df)
+    
     elif approach == 'annual-stationary':
-        df_mu = ut.extract_mu_for_all_sites_astat(result)
+        if parameter in ('mu', 'mu1'):
+            df_para = ut.extract_mu_for_all_sites_astat(df)
+        else:
+            df_para = ut.extract_scale_and_shape_for_all_sites_astat(df)
+    
     elif approach == 'stationary':
-        df_mu = ut.extract_mu_for_all_sites_stat(result)
+        if parameter in ('mu', 'mu1'):
+            df_para = ut.extract_mu_for_all_sites_stat(df)
+        else:
+            df_para = ut.extract_scale_and_shape_for_all_sites_stat(df)
+    
     else:
         raise ValueError(
             '*approach* not properly defined. '
             'Set either as stationary, non-stationary or annual-stationary to continue...'
             )
-        
-    if parameter == 'mu1':
-        if approach == 'stationary':
-            raise ValueError('Wrong combination! Statioanry GEV has no mu1 per definition.')
-        
-        ci_mu1 = ut.get_confidence_intervals_mu1(df_mu=df_mu, confidence_level_pc=confidence_level_pc)
-        label_col='mu1_mm/yr'
-        
-    elif parameter == 'mu':
-        ci_mu = ut.get_confidence_intervals_mu(df_mu=df_mu, confidence_level_pc=confidence_level_pc)
-        label_col='mu0_mm'
-        
+
+    if parameter == 'mu1' and approach == 'stationary':
+        raise ValueError('Wrong combination! Stationary GEV has no mu1 per definition.')
+
+    ci_para, label_col = ut.get_confidence_intervals_from_parameter(
+        df_para=df_para, parameter=parameter, confidence_level_pc=confidence_level_pc
+        )
+
+    # ----- extract parameter per location -----
+    label_para = label_col.split('_')[0]
+    label_para_std = label_para + '_std'
+
     rows = []
-    for loc_id in df_mu.index:
+    for loc_id in df_para.index:
 
         lat, lon = location_geo_info[loc_id]
 
-        if parameter == 'mu1':
-            mu1 = df_mu.loc[loc_id, 'mu1_mm/yr']
-            se_mu1 = df_mu.loc[loc_id, 'mu1_std_mm/yr']
-            
-            ci_mu_lower = ci_mu1.loc[loc_id]['mu1_lower']
-            ci_mu_upper = ci_mu1.loc[loc_id]['mu1_upper']
-                
-        elif parameter == 'mu':
-            ci_mu_lower = ci_mu.loc[loc_id]['mu0_lower']
-            ci_mu_upper = ci_mu.loc[loc_id]['mu0_upper']
-            
-            mu = df_mu.loc[loc_id, 'mu0_mm']
-            se_mu = df_mu.loc[loc_id, 'mu0_std_mm']
-            
-        if ci_mu_lower > ci_mu_upper:
-            a, b = ci_mu_lower, ci_mu_upper
-            ci_mu_upper = a
-            ci_mu_lower = b
-        significant = not (ci_mu_lower <= 0 <= ci_mu_upper)
+        para_mean = df_para.loc[loc_id, label_col]
+        para_std = df_para.loc[loc_id].filter(like=label_para_std).values[0]
+        ci_lower = ci_para.loc[loc_id].filter(like='lower').values[0]
+        ci_upper = ci_para.loc[loc_id].filter(like='upper').values[0]
 
-        if parameter == 'mu1':
-            rows.append({
-                "loc_id": loc_id,
-                "lat": lat,
-                "lon": lon,
-                "mu1": mu1,
-                "mu1_std": se_mu1,
-                "mu1_ci_lower": ci_mu_lower,
-                "mu1_ci_upper": ci_mu_upper,
-                "significant": significant
-            })
-        elif parameter == 'mu':
-            rows.append({
-                "loc_id": loc_id,
-                "lat": lat,
-                "lon": lon,
-                "mu": mu,
-                "mu_std": se_mu,
-                "mu_ci_lower": ci_mu_lower,
-                "mu_ci_upper": ci_mu_upper,
-                "significant": significant
-            })
+        if ci_lower > ci_upper:
+            a, b = ci_lower, ci_upper
+            ci_upper = a
+            ci_lower = b
+        significant = not (ci_lower <= 0 <= ci_upper)
+
+        rows.append({
+            "loc_id": loc_id,
+            "lat": lat,
+            "lon": lon,
+            label_para: para_mean,
+            label_para_std: para_std,
+            "ci_lower": ci_lower,
+            "ci_upper": ci_upper,
+            "significant": significant
+        })
 
     # mark outliers
     if mark_outlier is True:
-        df_mu = ut.mark_mu1_outliers_zmethod(df_mu, label_col=label_col, threshold=threshold_z_outlier)
-        df_plot = ut.mark_mu1_outliers_zmethod(DataFrame(rows), label_col=parameter, threshold=threshold_z_outlier)
-        return df_plot, df_mu
+        print('\nMarking outliers...')
+        df_para = ut.mark_outliers_zmethod(df_para, label_col=label_col, threshold=threshold_z_outlier)
+        df_plot = ut.mark_outliers_zmethod(DataFrame(rows), label_col=label_para, threshold=threshold_z_outlier)
+        return df_plot, df_para
     else:
-        return DataFrame(rows), df_mu
+        print('\nskipping outlier identification.')
+        return DataFrame(rows), df_para
 
 
-def convert_mu1_to_color(df_plot, mark_outlier, parameter):    
+def convert_parameter_to_color(df_plot, mark_outlier, parameter):    
     df = df_plot.copy()
     
     if mark_outlier is True:
@@ -1755,7 +1731,7 @@ def convert_mu1_to_color(df_plot, mark_outlier, parameter):
     return df
 
 
-def convert_mu1STD_to_alpha(df_plot, parameter):
+def convert_parameterSTD_to_alpha(df_plot, parameter):
     """
     Converting uncertainty into transparency: higher uncertainty → more transparent
     """
@@ -1772,7 +1748,7 @@ def convert_mu1STD_to_alpha(df_plot, parameter):
     return df_plot
 
 
-def convert_mu1STD_to_size(df_plot, parameter, min_size=10, max_size=200):
+def convert_parameterSTD_to_size(df_plot, parameter, min_size=10, max_size=200):
     """
     Convert uncertainty into marker size:
     higher uncertainty → smaller marker
@@ -1791,11 +1767,10 @@ def convert_mu1STD_to_size(df_plot, parameter, min_size=10, max_size=200):
     return df_plot
 
 
-def custom_color_for_mu_and_mu1(df_plot, mark_outlier, parameter, min_size=10, max_size=200):
-
-    df_plot = convert_mu1_to_color(df_plot, mark_outlier, parameter)
-    df_plot = convert_mu1STD_to_alpha(df_plot, parameter)
-    df_plot = convert_mu1STD_to_size(df_plot, parameter, min_size=min_size, max_size=max_size)
+def custom_color_for_parameter(df_plot, mark_outlier, parameter, min_size=10, max_size=200):
+    df_plot = convert_parameter_to_color(df_plot, mark_outlier, parameter)
+    df_plot = convert_parameterSTD_to_alpha(df_plot, parameter)
+    df_plot = convert_parameterSTD_to_size(df_plot, parameter, min_size=min_size, max_size=max_size)
 
     df_plot["color_rgba"] = df_plot.apply(lambda row: row["color"] + [row["alpha"]],axis=1)
     
@@ -1850,7 +1825,9 @@ def create_color_legend(cmap, max_abs):
     return legend_html
 
 
-def create_gradient_legend(cmap, norm, threshold_z_method, parameter, unit, width=180, height=15, n_steps=100):
+def create_gradient_legend(
+    cmap, norm, threshold_z_method, mark_outlier, parameter, unit, width=180, height=15, n_steps=100
+    ):
     """
     Create an HTML gradient legend matching your colormap and normalization.
 
@@ -1871,59 +1848,137 @@ def create_gradient_legend(cmap, norm, threshold_z_method, parameter, unit, widt
     gradient_str = ",".join(gradient)
 
     # HTML for gradient legend
-    parameter_pretty = 'μ₁' if parameter == 'mu1' else 'μ'
-    legend_html = f"""
-    <div style="
-        position: fixed;
-        bottom: 40px;
-        left: 40px;
-        width: {width}px;
-        font-size: 12px;
-        background-color: white;
-        border-radius: 6px;
-        box-shadow: 0px 0px 6px rgba(0,0,0,0.3);
-        padding: 6px;
-        z-index: 9999;
-    ">
-        <b>Trend {parameter_pretty}, {unit}</b><br>
+    if parameter == 'mu':
+        parameter_pretty = 'μ'
+    elif parameter == 'mu1':
+        parameter_pretty = 'μ₁' 
+    elif parameter == 'scale':
+        parameter_pretty = 'σ'
+    elif parameter == 'shape':
+        parameter_pretty = 'ξ'
+    elif 'return_period' in parameter:
+        parameter_pretty = 'return period'
+    
+    if mark_outlier is True:
+        legend_html = f"""
         <div style="
-            height: {height}px;
-            background: linear-gradient(to right, {gradient_str});
-            border: 1px solid black;
-            margin: 4px 0;
-        "></div>
-        <div style="display:flex;justify-content:space-between;">
-            <span>{norm.vmin:.2f}</span>
-            <span>0</span>
-            <span>{norm.vmax:.2f}</span>
+            position: fixed;
+            bottom: 40px;
+            left: 40px;
+            width: {width}px;
+            font-size: 12px;
+            background-color: white;
+            border-radius: 6px;
+            box-shadow: 0px 0px 6px rgba(0,0,0,0.3);
+            padding: 6px;
+            z-index: 9999;
+        ">
+            <b>Trend {parameter_pretty}, {unit}</b><br>
+            <div style="
+                height: {height}px;
+                background: linear-gradient(to right, {gradient_str});
+                border: 1px solid black;
+                margin: 4px 0;
+            "></div>
+            <div style="display:flex;justify-content:space-between;">
+                <span>{norm.vmin:.2f}</span>
+                <span>0</span>
+                <span>{norm.vmax:.2f}</span>
+            </div>
+            <br>
+            <b>Transparency</b><br>
+            Bigger marker size → higher uncertainty
+            <br>
+            <b>Outlier marked</b><br>
+            <span>using modified Z-score method with threshold {threshold_z_method:.2f}· σ</span>
         </div>
-        <br>
-        <b>Transparency</b><br>
-        Bigger marker size → higher uncertainty
-        <br>
-        <b>Outlier marked</b><br>
-        <span>using modified Z-score method with threshold {threshold_z_method:.2f}· σ</span>
-    </div>
-    """
+        """
+    else:
+        legend_html = f"""
+        <div style="
+            position: fixed;
+            bottom: 40px;
+            left: 40px;
+            width: {width}px;
+            font-size: 12px;
+            background-color: white;
+            border-radius: 6px;
+            box-shadow: 0px 0px 6px rgba(0,0,0,0.3);
+            padding: 6px;
+            z-index: 9999;
+        ">
+            <b>Trend {parameter_pretty}, {unit}</b><br>
+            <div style="
+                height: {height}px;
+                background: linear-gradient(to right, {gradient_str});
+                border: 1px solid black;
+                margin: 4px 0;
+            "></div>
+            <div style="display:flex;justify-content:space-between;">
+                <span>{norm.vmin:.2f}</span>
+                <span>0</span>
+                <span>{norm.vmax:.2f}</span>
+            </div>
+            <br>
+            <b>Transparency</b><br>
+            Bigger marker size → higher uncertainty
+        </div>
+        """
     #    More transparent → higher uncertainty
     # ALTERNATIVE: bigger marker size → higher uncertainty
 
     return legend_html
 
 
-def plot_mu_and_mu1_for_all_sites_interactive(
-    df_plot_, parameter, unit, approach, inital_zoom,
-    mark_outlier, threshold_z_method, cmap,
-    file_name: str, saving_map: bool,
-    axes_color: str = '#333333'
-):
+def initialize_projection(df_clean, parameter, min_size, max_size, mark_outlier):
+    gdf = gpd.GeoDataFrame(
+        df_clean, geometry=gpd.points_from_xy(df_clean['lon'], df_clean['lat']),
+        crs="EPSG:4326"
+    )
+    gdf_web = gdf.to_crs(epsg=3857)
+    gdf_web = custom_color_for_parameter(
+        gdf_web,  parameter=parameter, mark_outlier=mark_outlier, min_size=min_size, max_size=max_size
+        )
+
+    colors = []
+    for c in gdf_web['color']:
+        c_rgba = list(c)
+        if len(c_rgba) == 3:
+            c_rgba.append(255)
+        colors.append([v/255 for v in c_rgba])
+    colors = np.array(colors)
+
+    if mark_outlier is True:
+        gdf_web["marker_size"] = gdf_web.apply(
+            lambda row: OUTLIER_MARKER_SIZE if row["outliers"] else row["marker_size"],
+            axis=1
+        )
+        
+        valid = gdf_web.loc[~gdf_web["outliers"], parameter]
+        min_value = np.nanmin(valid)
+        max_value = np.nanmax(valid)
+
+    else:
+        max_value = np.nanmax(gdf_web[parameter])
+        min_value = np.nanmin(gdf_web[parameter])  
+        
+    norm = mcolors.Normalize(vmin=min_value, vmax=max_value)
+    return gdf_web, colors, norm
+
+
+def plot_map_of_parameter_for_all_sites_interactive(
+    df_plot_, parameter, unit, approach, inital_zoom, mark_outlier, threshold_z_method, cmap,
+    file_name: str, saving_map: bool, save_path:str|None=None, axes_color: str = '#333333'
+    ):
 
     df_plot = df_plot_.copy()
 
-    for suffix in ["", "_std", "_ci_lower", "_ci_upper"]:
+    for suffix in ["", "_std"]:
         col = parameter + suffix
         df_plot[col + "_str"] = df_plot[col].map("{:.3f}".format)
-
+    for col in ["ci_lower", "ci_upper"]:
+        df_plot[col + "_str"] = df_plot[col].map("{:.3f}".format)
+        
     df_plot["lat_str"] = df_plot["lat"].map("{:.3f}".format)
     df_plot["lon_str"] = df_plot["lon"].map("{:.3f}".format)
 
@@ -1938,7 +1993,6 @@ def plot_mu_and_mu1_for_all_sites_interactive(
 
     min_value = np.nanmin(data)
     max_value = np.nanmax(data)
-
     norm = mcolors.Normalize(vmin=min_value, vmax=max_value)
 
     # ---- Plotting ----
@@ -1957,18 +2011,30 @@ def plot_mu_and_mu1_for_all_sites_interactive(
     )
 
     legend_html = create_gradient_legend(
-        cmap, norm, threshold_z_method, parameter=parameter, unit=unit, width=260, height=15, n_steps=100
+        cmap, norm, threshold_z_method, mark_outlier=mark_outlier, parameter=parameter, unit=unit, width=260, height=15, 
+        n_steps=100
     )
 
     label_para = parameter + "_str"
     label_para_std = parameter + "_std_str"
 
-    symbol = "μ₁" if parameter == "mu1" else "μ"
+    if parameter == 'mu':
+        symbol = 'μ'
+        title = 'Location'
+    elif parameter == 'mu1':
+        symbol = 'μ₁' 
+        title = 'Location trend'
+    elif parameter == 'scale':
+        symbol = 'σ'
+        title = 'Scale'
+    elif parameter == 'shape':
+        symbol = 'ξ'
+        title = 'Shape'
 
     status_line = "status: {status}<br>" if mark_outlier else ""
-
+    
     tooltip_html = f"""
-        <b>Location</b><br>
+        <b>{title}</b><br>
         Lat: {{lat_str}}<br>
         Lon: {{lon_str}}<br>
         {symbol}: {{{label_para}}} {unit}<br>
@@ -1994,14 +2060,15 @@ def plot_mu_and_mu1_for_all_sites_interactive(
 
     # ---- Save map ----
     if saving_map:
-        today_ = datetime.today().date().isoformat()
-        output_path = f"../output/gev_analysis/{today_}/figures/"
-        os.makedirs(output_path, exist_ok=True)
+        if save_path is None:
+            raise ValueError('Missing path for output; provide `save_path`...')
+        if file_name is None:
+            raise ValueError('Missing file_name for output; provide `file_name`...')
 
-        if approach not in file_name:
-            file_name = (file_name.split('.')[0] + '_' + '_'.join(approach.split(' ')) + '.html')
-
-        full_path = output_path + file_name
+        save_dir = Path(save_path)
+        save_dir.mkdir(parents=True, exist_ok=True) 
+    
+        full_path = (save_dir / file_name).with_suffix('.html')
         print(f"map stored as {full_path}")
 
         deck.to_html(full_path)
@@ -2021,3 +2088,108 @@ def plot_mu_and_mu1_for_all_sites_interactive(
             f.write(html)
 
     return deck
+
+
+def plot_map_of_parameter_for_all_sites_static(
+    df_clean, approach, parameter, min_size, max_size, mark_outlier, unit,
+    edgecolor_marker=None, lw_marker=0.1, figsize=(8,5), fontsize=10, display_results:bool=True, save_plot:bool=False, 
+    save_path:str|None=None, file_name:str|None=None, threshold_z_method:float|None=None
+    ):
+    title, label_colormap = ut.define_title_and_label_per_parameter(parameter=parameter, unit=unit, approach=approach)
+
+    gdf_web, colors, norm = initialize_projection(df_clean, parameter, min_size, max_size, mark_outlier)
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    sc = ax.scatter(
+            gdf_web.geometry.x, gdf_web.geometry.y, 
+            c=colors, s=gdf_web['marker_size'], edgecolor=edgecolor_marker, linewidth=lw_marker 
+    )
+
+    ctx.add_basemap(ax, source=ctx.providers.CartoDB.Positron, zoom=6)
+    if mark_outlier:
+        legend_elements = [
+            Line2D(
+                [0], [0], linestyle='None', marker=None, 
+                label=f"Marker size ~ uncertainty (high → large)"
+                f"\nOutlier marked using modified Z-score (threshold {threshold_z_method:.2f}·σ)"
+                )
+        ]
+        ax.legend(handles=legend_elements, loc='lower right', fontsize=fontsize*0.8, framealpha=0.6)
+    else:
+        legend_elements = [
+            Line2D([0], [0], linestyle='None', marker=None, label=f"Marker size ~ uncertainty (high → large)")
+        ]
+        ax.legend(handles=legend_elements, loc='lower right', fontsize=fontsize*0.8, framealpha=0.6)
+        
+    ax.set_axis_off()
+    sm = ScalarMappable(cmap=CMAP, norm=norm)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=ax, orientation='vertical', fraction=0.03, pad=0.04)
+    cbar.set_label(label_colormap, fontsize=fontsize)
+
+    plt.title(title, loc='left', fontsize=fontsize)
+
+    plt.tight_layout()
+    if save_plot:
+        if save_path is None:
+            raise ValueError('Missing path for output; provide `save_path`...')
+        if file_name is None:
+            raise ValueError('Missing file_name for output; provide `file_name`...')
+
+        save_dir = Path(save_path)
+        save_dir.mkdir(parents=True, exist_ok=True) 
+    
+        file_name = (save_dir / file_name).with_suffix('.png')
+        plt.savefig(file_name, dpi=300, bbox_inches='tight')
+    
+    plt.show() if display_results else plt.close(fig)
+    return fig
+
+
+def plot_map_for_parameter(
+    approach, parameter, unit, df, location_geo_info, confidence_level_pc, threshold_z_outlier, mark_outlier, 
+    interactive_map, cmap, min_size, max_size, inital_zoom=3.5, saving_map:bool=False, save_path:str|None=None, fs=12
+    ):
+    
+    # ------ preparation ------
+    parameter = 'mu' if parameter == 'mu0' else parameter
+        
+    df_plot, df_para = prep_for_plot(
+        df=df, location_geo_info=location_geo_info, approach=approach, parameter=parameter, 
+        confidence_level_pc=confidence_level_pc, mark_outlier=mark_outlier, 
+        threshold_z_outlier=threshold_z_outlier
+        )
+    print(f'\n{approach} data: {df_plot.shape} out of {df_para.shape}')
+
+    if unit == 'm' and (parameter == 'scale' or parameter == 'mu'):
+        df_plot[parameter] = df_plot[parameter]/1000
+    
+    df_plot = custom_color_for_parameter(
+        df_plot, parameter=parameter, mark_outlier=mark_outlier, min_size=min_size, max_size=max_size
+        )
+    print(f'\nParameter Overview {parameter}, {unit}')
+    print(df_plot[parameter].describe())
+    print()
+    
+    # ------ plotting ------
+    if interactive_map is True:
+        file_name = ut.define_filename_per_parameter(parameter, approach, mark_outlier)
+
+        fig_map = plot_map_of_parameter_for_all_sites_interactive(
+            df_plot_=df_plot, approach=approach, parameter=parameter, unit=unit, 
+            mark_outlier=mark_outlier, threshold_z_method=threshold_z_outlier, 
+            inital_zoom=inital_zoom, save_path=save_path, saving_map=saving_map, cmap=cmap, file_name=file_name, 
+            )
+    else:
+        file_name = ut.define_filename_per_parameter(parameter, approach, mark_outlier)
+
+        df_clean = ut.remove_nan_sites(df_plot)
+
+        fig_map = plot_map_of_parameter_for_all_sites_static(
+            df_clean, parameter=parameter, unit=unit, approach=approach, min_size=min_size, 
+            max_size=max_size, mark_outlier=mark_outlier, threshold_z_method=threshold_z_outlier, 
+            display_results=True, save_plot=True, fontsize=fs, file_name=file_name, save_path=save_path, 
+            )
+
+    return fig_map

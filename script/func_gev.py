@@ -954,7 +954,9 @@ def safe_return_period(z, mu, sigma, xi, max_T=1e4):
 
     F = np.clip(F, 0, 1 - 1e-10)
     T = 1 / (1 - F)
-    T = np.clip(T, 1.0, max_T)
+    # T = np.clip(T, 1.0, max_T)
+    T[T > max_T] = np.nan
+    T[T < 1.0] = np.nan
     return T
 
 
@@ -1058,13 +1060,13 @@ def rp_uncertainty_monte_carlo(params, cov, years, mean_year, std_year, ref_year
         sims[i] = rp
 
     # Compute statistics ignoring NaNs
-    mean_rp = np.nanmean(sims, axis=0)
+    mean_rp = np.nanmedian(sims, axis=0)
     low_rp = np.nanpercentile(sims, 5, axis=0)
     high_rp = np.nanpercentile(sims, 95, axis=0)
 
     return DataFrame({
         'year': years,
-        'return_period_mean': mean_rp,
+        'return_period_median': mean_rp,
         'return_period_lower': low_rp,
         'return_period_upper': high_rp
     }).set_index('year')
