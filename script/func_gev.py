@@ -1241,7 +1241,7 @@ def pooled_gev_per_single_location(
 
     logger.info(
         f"Loc {loc_id} | Return Period Overview\n"
-        f" mean: {rp_ns.min().return_period_mean:.2f} – {rp_ns.max().return_period_mean:.2f} years\n"
+        f" mean: {rp_ns.min().return_period_median:.2f} – {rp_ns.max().return_period_median:.2f} years\n"
         f" lower: {rp_ns.min().return_period_lower:.2f} – {rp_ns.max().return_period_lower:.2f} years\n"
         f" upper: {rp_ns.min().return_period_upper:.2f} – {rp_ns.max().return_period_upper:.2f} years\n\n"
     )
