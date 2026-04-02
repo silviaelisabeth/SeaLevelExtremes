@@ -784,7 +784,7 @@ def compute_return_levels_delta_nonstat(nonstationary, T, t_eval, confidence_lev
     years_mean = nonstationary['years_mean']
     years_std = nonstationary['years_std']
     
-    t_scaled = (t_eval - years_mean) / years_std
+    t_scaled = (t_eval - years_mean)
     mu_t = mu0 + mu1 * t_scaled
     
     if abs(xi) < 1e-10:
@@ -833,7 +833,7 @@ def return_levels_bootstrap_nonstationary(nonstationary, T, t_eval, confidence_l
     mu0, mu1, sigma, xi = nonstationary['params_hat']
 
     t_eval = np.asarray(t_eval)
-    t_scaled = (t_eval - years_mean) / years_std
+    t_scaled = (t_eval - years_mean)
 
     y = -np.log(1 - 1/T)
     

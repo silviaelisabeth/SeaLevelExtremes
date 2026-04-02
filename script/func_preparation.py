@@ -275,11 +275,12 @@ def get_number_of_observations_per_site(dic_data_per_location:dict) -> DataFrame
 
 
 def get_location_w_missing_data(
-    model_label:str, 
+    model_label:str,
     dic_data_per_model: dict[str, dict[str, DataFrame]],
     n_obs_per_location:DataFrame,
-    combined: ndarray  
+    combined: ndarray,
 ) -> tuple[DataFrame, DataFrame]:
+    
     df_geocoordinates_raw = DataFrame([
         dic_data_per_model[model_label]['raw data'].lat.values,
         dic_data_per_model[model_label]['raw data'].lon.values
@@ -291,9 +292,9 @@ def get_location_w_missing_data(
         index=['lat', 'lon']).T
     
     df_geocoordinates_combined = df_geocoordinates_combined.merge(
-        n_obs_per_location[['lat', 'lon', 'n_obs']], on=['lat', 'lon'], how='left'
+        n_obs_per_location[['lat', 'lon', 'n_obs', 'site_id']], on=['lat', 'lon'], how='left'
         )
-    df_geocoordinates_combined['info'] = "Observations: " + df_geocoordinates_combined['n_obs'].astype(str)
+    df_geocoordinates_combined['info'] = "n_obs: " + df_geocoordinates_combined['n_obs'].astype(str)
     
     missing_locations = DataFrame(
         (
@@ -301,14 +302,16 @@ def get_location_w_missing_data(
             - set(zip(df_geocoordinates_combined['lat'], df_geocoordinates_combined['lon']))), 
         columns=['lat', 'lon']
         )
-    
-    
-    
+    missing_locations = missing_locations.merge(
+        df_geocoordinates_raw[['lat', 'lon']], on=['lat', 'lon'], how='left'
+        )
+
     return missing_locations, df_geocoordinates_combined
 
 
 def create_summary_location_w_missing_data(
-    dic_data_per_model:dict, combined, n_obs_per_location:DataFrame, dir_export:Optional[str]=None, print_msg:bool=False
+    dic_data_per_model:dict, combined, radius_marker_m:int, n_obs_per_location:DataFrame, 
+    dir_export:Optional[str]=None, print_msg:bool=False
     )->DataFrame:
     
     model_label = list(dic_data_per_model.keys())[0]
@@ -322,16 +325,19 @@ def create_summary_location_w_missing_data(
         print(message)
 
     df_missing_location = add_location_labels(missing_locations)
-    df_missing_location = df_missing_location.sort_values('country')[['country', 'city', 'admin1', 'lat', 'lon']]
+    df_missing_location = df_missing_location.sort_values('country')[
+        ['country', 'city', 'admin1', 'lat', 'lon']
+        ]
     
     norm_obs = normalize_n_observants(df_valid).to_numpy()  
     colors_rgb = cm.navia(norm_obs)[:, :3]
-    alpha = 200
-    colors_int = np.hstack([np.round(colors_rgb*255).astype(int), np.full((colors_rgb.shape[0],1), alpha, dtype=int)])
+    colors_int = np.hstack([np.round(colors_rgb*255).astype(int), np.full((colors_rgb.shape[0],1), 200, dtype=int)])
     df_valid['colors'] = colors_int.tolist()
     
+    df_valid['site_id'] = df_valid.index
+    
     fig = dbplt.create_map_location_missing_valid_data(
-        missing_locations=missing_locations, df_valid=df_valid,
+        missing_locations=missing_locations, df_valid=df_valid, radius_marker_m=radius_marker_m,
         dir_export=dir_export, store_map=True if dir_export else False, 
         )
     
@@ -339,7 +345,7 @@ def create_summary_location_w_missing_data(
         save_dir = Path(dir_export)
         save_dir.mkdir(parents=True, exist_ok=True) 
 
-        file_name = save_dir / 'missing_locations_summary_{time_date}.txt'
+        file_name = save_dir / f'missing_locations_summary.txt'
         df_missing_location.to_csv(file_name, sep='\t', index=False)
         
         message = f'Overview of location with missing data saved as {file_name}.'
