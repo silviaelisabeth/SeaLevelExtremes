@@ -702,57 +702,6 @@ def compare_stationary_nonstationary(stationary, nonstationary, data_loc):
         })
 
 
-def compute_return_levels_delta(stationary, nonstationary, T, t_eval, confidence_level_pc:float = 0.9):
-    t_eval = np.asarray(t_eval)
-    
-    # ---- Stationary ----
-    mu = stationary['location']
-    sigma = stationary['scale']
-    xi = stationary['shape']
-    cov_theta = stationary['cov']  # 3x3 covariance matrix for (mu, sigma, xi)
-    
-    if abs(xi) < 1e-10:
-        z_T = mu + sigma * -np.log(-np.log(1 - 1/T))
-        grad = np.array([1, -np.log(-np.log(1 - 1/T)), 0])
-    else:
-        f = (-np.log(1 - 1/T))**(-xi) - 1
-        z_T = mu + sigma/xi * f
-        df_dxi = -(-np.log(1 - 1/T))**(-xi) * np.log(-np.log(1 - 1/T))
-        grad = np.array([1, f/xi, -sigma/xi**2 * f + sigma/xi * df_dxi])
-    
-    var_zT = grad @ cov_theta @ grad
-    z = norm.ppf(1 - (1-confidence_level_pc)/2) 
-    ci_lower = z_T - z * np.sqrt(var_zT)
-    ci_upper = z_T + z * np.sqrt(var_zT)
-    
-    # ---- Non-stationary ----
-    mu0, mu1, sigma, xi = nonstationary['params_hat']
-    cov_theta_ns = nonstationary['cov']  # 4x4 covariance matrix for (mu0, mu1, sigma, xi)
-    years_mean = nonstationary['years_mean']
-    years_std = nonstationary['years_std']
-    
-    t_scaled = (t_eval - years_mean) / years_std
-    mu_t = mu0 + mu1 * t_scaled
-    
-    if abs(xi) < 1e-10:
-        z_T_ns = mu_t + sigma * -np.log(-np.log(1 - 1/T))
-        grad_ns = np.array([1, t_scaled, -np.log(-np.log(1 - 1/T)), 0])
-    else:
-        f = (-np.log(1 - 1/T))**(-xi) - 1
-        z_T_ns = mu_t + sigma/xi * f
-        df_dxi = -(-np.log(1 - 1/T))**(-xi) * np.log(-np.log(1 - 1/T))
-        grad_ns = np.array([1, t_scaled, f/xi, -sigma/xi**2*f + sigma/xi*df_dxi])
-    
-    var_zT_ns = grad_ns @ cov_theta_ns @ grad_ns
-    ci_lower_ns = z_T_ns - 1.96 * np.sqrt(var_zT_ns)
-    ci_upper_ns = z_T_ns + 1.96 * np.sqrt(var_zT_ns)
-    
-    return {
-        'stationary': {'z_T': z_T, 'lower': ci_lower, 'upper': ci_upper},
-        'nonstationary': {'z_T': z_T_ns, 'lower': ci_lower_ns, 'upper': ci_upper_ns}
-    }
-
-
 def compute_return_levels_delta_stat(stationary, T, confidence_level_pc:float = 0.9):
     mu = stationary['location']
     sigma = stationary['scale']
@@ -892,22 +841,6 @@ def compute_all_return_levels(stationary, nonstationary, return_periods, ls_t_ev
     return df_rl
 
 
-def safe_return_level_backup(T, mu, sigma, xi):
-    """
-    Compute GEV return level for return period T (years).
-    Handles xi ≈ 0 and prevents log(0) errors.
-    """
-    T = np.array(T, dtype=float)
-    T = np.maximum(T, 1 + 1e-10)  # avoid T <= 1
-
-    if abs(xi) < 1e-6:  # Gumbel limit
-        return mu - sigma * np.log(-np.log(1 - 1/T))
-    else:
-        u = -np.log(1 - 1/T)
-        u = np.maximum(u, 1e-10)
-        return mu + sigma/xi * (u**(-xi) - 1)
-
-
 def safe_return_level(T, mu, sigma, xi):
     """
     Compute GEV return level for return period T (years).
@@ -921,23 +854,6 @@ def safe_return_level(T, mu, sigma, xi):
     z = genextreme.ppf(1 - 1/T, c=c, loc=mu, scale=sigma)
     z = np.clip(z, -1e5, 1e5)
     return z
-
-
-def safe_return_period_backup(z, mu, sigma, xi, max_T=1e4):
-    """
-    Compute return period corresponding to level z.
-    Return period >= 1 year (annual maxima assumption).
-    """
-    term = 1 + xi*(z - mu)/sigma
-    term = np.maximum(term, 1e-10)
-
-    F = np.exp(-term**(-1/xi))
-    F = np.clip(F, 0, 1 - 1e-10)  
-    
-    T = 1/(1 - F)
-    T = np.maximum(T, 1.0)  
-    
-    return np.minimum(T, max_T)
 
 
 def safe_return_period(z, mu, sigma, xi, max_T=1e4):
@@ -1003,41 +919,6 @@ def rp_evolution(params, years, mean_year, std_year, ref_year, T_ref, max_T=1e4)
     return rp_all, z_ref
 
 
-def rp_uncertainty_monte_carlo_backup(params, cov, years, mean_year, std_year, ref_year, T_ref, nsim=5000, cap_rp=1e4):
-    """
-    Monte Carlo sampling from parameter covariance to get RP uncertainty.
-    Returns mean, 5th percentile, 95th percentile of RP evolution.
-    """
-    samples_ = np.random.multivariate_normal(params, cov, nsim)
-    samples = filter_unstable_samples(samples_)
-    
-    sims = []
-    for p in samples:
-        _, _, sigma, xi = p
-        if sigma <= 0 or abs(xi) > 0.5:
-            continue
-        
-        rp, _ = rp_evolution(p, years, mean_year, std_year, ref_year, T_ref, cap_rp)
-        rp = np.minimum(rp, cap_rp)
-        
-        sims.append(rp)
-
-    sims = np.array(sims)
-    
-    # remove extreme simulations
-    threshold = np.percentile(sims, 99.5)
-    sims[sims > threshold] = np.nan
-
-    mean = sims.mean(axis=0)
-    low = np.percentile(sims, 5, axis=0)
-    high = np.percentile(sims, 95, axis=0)
-
-    return DataFrame(
-        [mean, low, high], 
-        columns=years, index=['return_period_mean', 'return_period_lower', 'return_period_upper']
-        ).T
-
-
 def rp_uncertainty_monte_carlo(params, cov, years, mean_year, std_year, ref_year, T_ref, nsim=5000, max_T=1e4):
     """
     Monte Carlo sampling to estimate RP uncertainty.
@@ -1070,74 +951,7 @@ def rp_uncertainty_monte_carlo(params, cov, years, mean_year, std_year, ref_year
         'return_period_lower': low_rp,
         'return_period_upper': high_rp
     }).set_index('year')
-    
 
-def rp_uncertainty_monte_carlo_fast(params, cov, years, mean_year, std_year, ref_year, T_ref, nsim=5000, max_T=1e4):
-    samples = np.random.multivariate_normal(params, cov, nsim)
-
-    mu0_s = samples[:,0]
-    mu1_s = samples[:,1]
-    sigma_s = samples[:,2]
-    xi_s = samples[:,3]
-
-    # ---- filter unrealistic samples ----
-    mask = (sigma_s > 0) & (np.abs(xi_s) < 0.5)
-    mu0_s, mu1_s, sigma_s, xi_s = mu0_s[mask], mu1_s[mask], sigma_s[mask], xi_s[mask]
-    ns = len(mu0_s)
-
-    # ---- reference location parameter ----
-    mu_ref = mu_year(year=ref_year, mu0=mu0_s, mu1=mu1_s, mean_year=mean_year, std_year=std_year)
-
-    # ---- reference return level ----
-    u = -np.log(1 - 1/T_ref)
-
-    small_xi = np.abs(xi_s) < 1e-6
-    z_ref = np.empty(ns)
-
-    # Gumbel case
-    z_ref[small_xi] = mu_ref[small_xi] - sigma_s[small_xi] * np.log(-np.log(1 - 1/T_ref))
-
-    # general case
-    z_ref[~small_xi] = (
-        mu_ref[~small_xi]
-        + sigma_s[~small_xi]/xi_s[~small_xi]
-        * (u**(-xi_s[~small_xi]) - 1)
-    )
-
-    # ---- compute μ(t) for all years ----
-    t = (years - mean_year) / std_year
-    mu_all = mu0_s[:,None] + mu1_s[:,None] * t[None,:]
-
-    # ---- return periods ----
-    xi_safe = np.clip(xi_s[:, None], -0.1, 0.1)         # optional: tighter bounds if needed
-    small_xi = np.abs(xi_safe) < 1e-6
-    
-    term = 1 + xi_safe[:,None] * (z_ref[:,None] - mu_all)
-    term = term / sigma_s[:, None]
-    # prevent invalid values
-    term = np.maximum(term, 1e-6)
-
-    exp_term = np.where(
-        small_xi[:, None],
-        np.exp(-term),                                  # Gumbel-like safe
-        np.minimum(term**(-1/xi_safe[:, None]), 1e10)   # cap extreme
-    )
-    F = np.clip(np.exp(-exp_term), 0, 1-1e-10)
-    
-    rp = 1/(1-F)
-    rp = np.clip(rp, 1, max_T)
-
-    # ---- statistics ----
-    mean = np.mean(rp, axis=0)
-    low = np.percentile(rp, 5, axis=0)
-    high = np.percentile(rp, 95, axis=0)
-
-    return DataFrame({
-        "return_period_mean": mean,
-        "return_period_lower": low,
-        "return_period_upper": high
-    }, index=years)
-    
     
 def pooled_gev_per_single_location(
     loc_id,
