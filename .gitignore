@@ -206,3 +206,5 @@ cython_debug/
 *.xml
 
 *.iml
+
+*.zip
