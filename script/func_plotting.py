@@ -487,6 +487,8 @@ def create_map_location_missing_valid_data(
         layers=[layer_valid, layer_missing], initial_view_state=view_state,
         map_style="https://tiles.openfreemap.org/styles/positron",
         tooltip=dic_tooltip
+        map_style="https://tiles.openfreemap.org/styles/positron",
+        tooltip=dic_tooltip
     )
 
     if store_map:
@@ -1004,6 +1006,7 @@ def plot_equivalent_return_period(
     ax.set_ylabel('Equivalent Return Period, years', fontsize=fontsize*0.9)
 
     plt.tight_layout()
+
 
 
 def plot_pooled_analysis(
@@ -1795,10 +1798,13 @@ def custom_color_for_parameter_v0(df_plot, mark_outlier, parameter, min_size=10,
     df_plot = convert_parameter_to_color(df_plot, mark_outlier, parameter)
     df_plot = convert_parameterSTD_to_alpha(df_plot, parameter)
     #df_plot = convert_parameterSTD_to_size(df_plot, parameter, min_size=min_size, max_size=max_size)
+    #df_plot = convert_parameterSTD_to_size(df_plot, parameter, min_size=min_size, max_size=max_size)
 
     df_plot["color_rgba"] = df_plot.apply(lambda row: row["color"] + [row["alpha"]],axis=1)
     
     if mark_outlier is True:
+        df_plot["color_rgba"] = df_plot.apply(
+            lambda row: OUTLIER_COLOR if row["outliers"] else row["color_rgba"],
         df_plot["color_rgba"] = df_plot.apply(
             lambda row: OUTLIER_COLOR if row["outliers"] else row["color_rgba"],
             axis=1
@@ -1871,6 +1877,7 @@ def create_gradient_legend_v0(
             <br>
             <b>Transparency</b><br>
             Higher uncertainty → higher marker transparency
+            Higher uncertainty → higher marker transparency
             <br>
             <b>Outlier marked</b><br>
             <span>using modified Z-score method with threshold {threshold_z_method:.2f}· σ</span>
@@ -1925,12 +1932,14 @@ def initialize_projection_v0(df_clean, parameter, min_size, max_size, mark_outli
 
     colors = []
     for c in gdf_web['color_rgba']:
+    for c in gdf_web['color_rgba']:
         c_rgba = list(c)
         if len(c_rgba) == 3:
             c_rgba.append(255)
         colors.append([v/255 for v in c_rgba])
     colors = np.array(colors)
 
+    if mark_outlier is True:    
     if mark_outlier is True:    
         valid = gdf_web.loc[~gdf_web["outliers"], parameter]
         min_value = np.nanmin(valid)
@@ -1950,6 +1959,7 @@ def initialize_projection_v0(df_clean, parameter, min_size, max_size, mark_outli
 
 
 def plot_map_of_parameter_for_all_sites_interactive(
+    df_plot_, parameter, unit, approach, inital_zoom, mark_outlier, threshold_z_method, cmap, marker_size,
     df_plot_, parameter, unit, approach, inital_zoom, mark_outlier, threshold_z_method, cmap, marker_size,
     file_name: str, saving_map: bool, save_path:str|None=None, axes_color: str = '#333333'
     ):
@@ -1981,6 +1991,8 @@ def plot_map_of_parameter_for_all_sites_interactive(
         "ScatterplotLayer",
         data=df_plot,
         get_position='[lon, lat]',
+        get_fill_color="color_rgba",
+        get_radius=marker_size,
         get_fill_color="color_rgba",
         get_radius=marker_size,
         pickable=True,
@@ -2075,6 +2087,8 @@ def plot_map_of_parameter_for_all_sites_static(
     df_clean, approach, parameter, min_size, max_size, mark_outlier, unit,
     edgecolor_marker=None, marker_size=50,lw_marker=0.1, figsize=(8,5), fontsize=10, display_results:bool=True, 
     save_plot:bool=False, save_path:str|None=None, file_name:str|None=None, threshold_z_method:float|None=None
+    edgecolor_marker=None, marker_size=50,lw_marker=0.1, figsize=(8,5), fontsize=10, display_results:bool=True, 
+    save_plot:bool=False, save_path:str|None=None, file_name:str|None=None, threshold_z_method:float|None=None
     ):
     title, label_colormap = ut.define_title_and_label_per_parameter(parameter=parameter, unit=unit, approach=approach)
 
@@ -2085,6 +2099,7 @@ def plot_map_of_parameter_for_all_sites_static(
     sc = ax.scatter(
             gdf_web.geometry.x, gdf_web.geometry.y, 
             c=colors, s=marker_size, edgecolor=edgecolor_marker, linewidth=lw_marker 
+            c=colors, s=marker_size, edgecolor=edgecolor_marker, linewidth=lw_marker 
     )
 
     ctx.add_basemap(ax, source=ctx.providers.CartoDB.Positron, zoom=6)
@@ -2093,12 +2108,17 @@ def plot_map_of_parameter_for_all_sites_static(
             Line2D(
                 [0], [0], linestyle='None', marker=None, 
                 label=f"Uncertainty ~ transparency (high → highly transparent)"
+                label=f"Uncertainty ~ transparency (high → highly transparent)"
                 f"\nOutlier marked using modified Z-score (threshold {threshold_z_method:.2f}·σ)"
                 )
         ]
         ax.legend(handles=legend_elements, loc='lower right', fontsize=fontsize*0.8, framealpha=0.6)
     else:
         legend_elements = [
+            Line2D(
+                [0], [0], linestyle='None', marker=None, 
+                label="Uncertainty ~ transparency (high → highly transparent)"
+                )
             Line2D(
                 [0], [0], linestyle='None', marker=None, 
                 label="Uncertainty ~ transparency (high → highly transparent)"
@@ -2136,6 +2156,8 @@ def plot_map_for_parameter(
     approach, parameter, unit, df, location_geo_info, confidence_level_pc, threshold_z_outlier, mark_outlier, 
     interactive_map, cmap, min_size, max_size, marker_size, inital_zoom=3.5, saving_map:bool=False, 
     save_path:str|None=None, fs=12
+    interactive_map, cmap, min_size, max_size, marker_size, inital_zoom=3.5, saving_map:bool=False, 
+    save_path:str|None=None, fs=12
     ):
     
     # ------ preparation ------
@@ -2165,6 +2187,7 @@ def plot_map_for_parameter(
         fig_map = plot_map_of_parameter_for_all_sites_interactive(
             df_plot_=df_plot, approach=approach, parameter=parameter, unit=unit, 
             mark_outlier=mark_outlier, threshold_z_method=threshold_z_outlier, marker_size=marker_size,
+            mark_outlier=mark_outlier, threshold_z_method=threshold_z_outlier, marker_size=marker_size,
             inital_zoom=inital_zoom, save_path=save_path, saving_map=saving_map, cmap=cmap, file_name=file_name, 
             )
     else:
@@ -2173,6 +2196,7 @@ def plot_map_for_parameter(
         df_clean = ut.remove_nan_sites(df_plot)
 
         fig_map = plot_map_of_parameter_for_all_sites_static(
+            df_clean, parameter=parameter, unit=unit, approach=approach, min_size=min_size, marker_size=marker_size,
             df_clean, parameter=parameter, unit=unit, approach=approach, min_size=min_size, marker_size=marker_size,
             max_size=max_size, mark_outlier=mark_outlier, threshold_z_method=threshold_z_outlier, 
             display_results=True, save_plot=True, fontsize=fs, file_name=file_name, save_path=save_path, 

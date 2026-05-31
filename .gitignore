@@ -195,6 +195,7 @@ cython_debug/
 *txt
 
 /input
+/output
 /backup
 
 .parquet
