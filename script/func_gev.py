@@ -3,6 +3,7 @@ import random
 import warnings
 
 import numpy as np
+import pandas as pd
 import statsmodels.api as sm
 from joblib import Parallel, delayed
 from pandas import DataFrame
@@ -702,57 +703,6 @@ def compare_stationary_nonstationary(stationary, nonstationary, data_loc):
         })
 
 
-def compute_return_levels_delta(stationary, nonstationary, T, t_eval, confidence_level_pc:float = 0.9):
-    t_eval = np.asarray(t_eval)
-    
-    # ---- Stationary ----
-    mu = stationary['location']
-    sigma = stationary['scale']
-    xi = stationary['shape']
-    cov_theta = stationary['cov']  # 3x3 covariance matrix for (mu, sigma, xi)
-    
-    if abs(xi) < 1e-10:
-        z_T = mu + sigma * -np.log(-np.log(1 - 1/T))
-        grad = np.array([1, -np.log(-np.log(1 - 1/T)), 0])
-    else:
-        f = (-np.log(1 - 1/T))**(-xi) - 1
-        z_T = mu + sigma/xi * f
-        df_dxi = -(-np.log(1 - 1/T))**(-xi) * np.log(-np.log(1 - 1/T))
-        grad = np.array([1, f/xi, -sigma/xi**2 * f + sigma/xi * df_dxi])
-    
-    var_zT = grad @ cov_theta @ grad
-    z = norm.ppf(1 - (1-confidence_level_pc)/2) 
-    ci_lower = z_T - z * np.sqrt(var_zT)
-    ci_upper = z_T + z * np.sqrt(var_zT)
-    
-    # ---- Non-stationary ----
-    mu0, mu1, sigma, xi = nonstationary['params_hat']
-    cov_theta_ns = nonstationary['cov']  # 4x4 covariance matrix for (mu0, mu1, sigma, xi)
-    years_mean = nonstationary['years_mean']
-    years_std = nonstationary['years_std']
-    
-    t_scaled = (t_eval - years_mean) / years_std
-    mu_t = mu0 + mu1 * t_scaled
-    
-    if abs(xi) < 1e-10:
-        z_T_ns = mu_t + sigma * -np.log(-np.log(1 - 1/T))
-        grad_ns = np.array([1, t_scaled, -np.log(-np.log(1 - 1/T)), 0])
-    else:
-        f = (-np.log(1 - 1/T))**(-xi) - 1
-        z_T_ns = mu_t + sigma/xi * f
-        df_dxi = -(-np.log(1 - 1/T))**(-xi) * np.log(-np.log(1 - 1/T))
-        grad_ns = np.array([1, t_scaled, f/xi, -sigma/xi**2*f + sigma/xi*df_dxi])
-    
-    var_zT_ns = grad_ns @ cov_theta_ns @ grad_ns
-    ci_lower_ns = z_T_ns - 1.96 * np.sqrt(var_zT_ns)
-    ci_upper_ns = z_T_ns + 1.96 * np.sqrt(var_zT_ns)
-    
-    return {
-        'stationary': {'z_T': z_T, 'lower': ci_lower, 'upper': ci_upper},
-        'nonstationary': {'z_T': z_T_ns, 'lower': ci_lower_ns, 'upper': ci_upper_ns}
-    }
-
-
 def compute_return_levels_delta_stat(stationary, T, confidence_level_pc:float = 0.9):
     mu = stationary['location']
     sigma = stationary['scale']
@@ -892,22 +842,6 @@ def compute_all_return_levels(stationary, nonstationary, return_periods, ls_t_ev
     return df_rl
 
 
-def safe_return_level_backup(T, mu, sigma, xi):
-    """
-    Compute GEV return level for return period T (years).
-    Handles xi ≈ 0 and prevents log(0) errors.
-    """
-    T = np.array(T, dtype=float)
-    T = np.maximum(T, 1 + 1e-10)  # avoid T <= 1
-
-    if abs(xi) < 1e-6:  # Gumbel limit
-        return mu - sigma * np.log(-np.log(1 - 1/T))
-    else:
-        u = -np.log(1 - 1/T)
-        u = np.maximum(u, 1e-10)
-        return mu + sigma/xi * (u**(-xi) - 1)
-
-
 def safe_return_level(T, mu, sigma, xi):
     """
     Compute GEV return level for return period T (years).
@@ -921,23 +855,6 @@ def safe_return_level(T, mu, sigma, xi):
     z = genextreme.ppf(1 - 1/T, c=c, loc=mu, scale=sigma)
     z = np.clip(z, -1e5, 1e5)
     return z
-
-
-def safe_return_period_backup(z, mu, sigma, xi, max_T=1e4):
-    """
-    Compute return period corresponding to level z.
-    Return period >= 1 year (annual maxima assumption).
-    """
-    term = 1 + xi*(z - mu)/sigma
-    term = np.maximum(term, 1e-10)
-
-    F = np.exp(-term**(-1/xi))
-    F = np.clip(F, 0, 1 - 1e-10)  
-    
-    T = 1/(1 - F)
-    T = np.maximum(T, 1.0)  
-    
-    return np.minimum(T, max_T)
 
 
 def safe_return_period(z, mu, sigma, xi, max_T=1e4):
@@ -1003,41 +920,6 @@ def rp_evolution(params, years, mean_year, std_year, ref_year, T_ref, max_T=1e4)
     return rp_all, z_ref
 
 
-def rp_uncertainty_monte_carlo_backup(params, cov, years, mean_year, std_year, ref_year, T_ref, nsim=5000, cap_rp=1e4):
-    """
-    Monte Carlo sampling from parameter covariance to get RP uncertainty.
-    Returns mean, 5th percentile, 95th percentile of RP evolution.
-    """
-    samples_ = np.random.multivariate_normal(params, cov, nsim)
-    samples = filter_unstable_samples(samples_)
-    
-    sims = []
-    for p in samples:
-        _, _, sigma, xi = p
-        if sigma <= 0 or abs(xi) > 0.5:
-            continue
-        
-        rp, _ = rp_evolution(p, years, mean_year, std_year, ref_year, T_ref, cap_rp)
-        rp = np.minimum(rp, cap_rp)
-        
-        sims.append(rp)
-
-    sims = np.array(sims)
-    
-    # remove extreme simulations
-    threshold = np.percentile(sims, 99.5)
-    sims[sims > threshold] = np.nan
-
-    mean = sims.mean(axis=0)
-    low = np.percentile(sims, 5, axis=0)
-    high = np.percentile(sims, 95, axis=0)
-
-    return DataFrame(
-        [mean, low, high], 
-        columns=years, index=['return_period_mean', 'return_period_lower', 'return_period_upper']
-        ).T
-
-
 def rp_uncertainty_monte_carlo(params, cov, years, mean_year, std_year, ref_year, T_ref, nsim=5000, max_T=1e4):
     """
     Monte Carlo sampling to estimate RP uncertainty.
@@ -1070,74 +952,7 @@ def rp_uncertainty_monte_carlo(params, cov, years, mean_year, std_year, ref_year
         'return_period_lower': low_rp,
         'return_period_upper': high_rp
     }).set_index('year')
-    
 
-def rp_uncertainty_monte_carlo_fast(params, cov, years, mean_year, std_year, ref_year, T_ref, nsim=5000, max_T=1e4):
-    samples = np.random.multivariate_normal(params, cov, nsim)
-
-    mu0_s = samples[:,0]
-    mu1_s = samples[:,1]
-    sigma_s = samples[:,2]
-    xi_s = samples[:,3]
-
-    # ---- filter unrealistic samples ----
-    mask = (sigma_s > 0) & (np.abs(xi_s) < 0.5)
-    mu0_s, mu1_s, sigma_s, xi_s = mu0_s[mask], mu1_s[mask], sigma_s[mask], xi_s[mask]
-    ns = len(mu0_s)
-
-    # ---- reference location parameter ----
-    mu_ref = mu_year(year=ref_year, mu0=mu0_s, mu1=mu1_s, mean_year=mean_year, std_year=std_year)
-
-    # ---- reference return level ----
-    u = -np.log(1 - 1/T_ref)
-
-    small_xi = np.abs(xi_s) < 1e-6
-    z_ref = np.empty(ns)
-
-    # Gumbel case
-    z_ref[small_xi] = mu_ref[small_xi] - sigma_s[small_xi] * np.log(-np.log(1 - 1/T_ref))
-
-    # general case
-    z_ref[~small_xi] = (
-        mu_ref[~small_xi]
-        + sigma_s[~small_xi]/xi_s[~small_xi]
-        * (u**(-xi_s[~small_xi]) - 1)
-    )
-
-    # ---- compute μ(t) for all years ----
-    t = (years - mean_year) / std_year
-    mu_all = mu0_s[:,None] + mu1_s[:,None] * t[None,:]
-
-    # ---- return periods ----
-    xi_safe = np.clip(xi_s[:, None], -0.1, 0.1)         # optional: tighter bounds if needed
-    small_xi = np.abs(xi_safe) < 1e-6
-    
-    term = 1 + xi_safe[:,None] * (z_ref[:,None] - mu_all)
-    term = term / sigma_s[:, None]
-    # prevent invalid values
-    term = np.maximum(term, 1e-6)
-
-    exp_term = np.where(
-        small_xi[:, None],
-        np.exp(-term),                                  # Gumbel-like safe
-        np.minimum(term**(-1/xi_safe[:, None]), 1e10)   # cap extreme
-    )
-    F = np.clip(np.exp(-exp_term), 0, 1-1e-10)
-    
-    rp = 1/(1-F)
-    rp = np.clip(rp, 1, max_T)
-
-    # ---- statistics ----
-    mean = np.mean(rp, axis=0)
-    low = np.percentile(rp, 5, axis=0)
-    high = np.percentile(rp, 95, axis=0)
-
-    return DataFrame({
-        "return_period_mean": mean,
-        "return_period_lower": low,
-        "return_period_upper": high
-    }, index=years)
-    
     
 def pooled_gev_per_single_location(
     loc_id,
@@ -1497,3 +1312,311 @@ def prepare_for_regression(
             ),
         }
 
+
+# -------------- 50-year-event-evolution --------------------
+def gev_mu_at_year(year, mu0, mu1, years_mean):
+    """
+    Location parameter for a non-stationary GEV with centered time.
+
+    The model is:
+        mu(t) = mu0 + mu1 * (year - years_mean)
+
+    Important:
+    Do not divide by years_std unless the model was fitted using standardized time.
+    In the current workflow, years are centered but not standardized.
+    """
+    return mu0 + mu1 * (np.asarray(year, dtype=float) - years_mean)
+
+
+def gev_return_level(T, mu, sigma, xi):
+    """
+    Return level z_T for return period T under a GEV distribution.
+
+    Uses scipy's genextreme convention c = -xi.
+    The survival probability is 1 / T.
+    """
+    if sigma <= 0:
+        return np.nan
+
+    return genextreme.isf(1.0 / T, c=-xi, loc=mu, scale=sigma)
+
+
+def gev_return_period(z, mu, sigma, xi, max_return_period=1e4):
+    """
+    Equivalent return period of a fixed level z under GEV(mu, sigma, xi).
+
+    Return period is:
+        T = 1 / P(X > z)
+
+    Uses survival function directly for numerical stability.
+    """
+    if sigma <= 0:
+        return np.nan
+
+    sf = genextreme.sf(z, c=-xi, loc=mu, scale=sigma)
+
+    if not np.isfinite(sf) or sf <= 0:
+        return np.nan
+
+    sf = np.clip(sf, 1.0 / max_return_period, 1.0)
+    T = 1.0 / sf
+
+    if T < 1.0 or not np.isfinite(T):
+        return np.nan
+
+    return T
+
+
+def return_period_evolution_1961_50yr(
+    nonstationary,
+    years=None,
+    ref_year=1961,
+    ref_return_period=50,
+    max_return_period=1e4,
+):
+    """
+    Compute the return-period evolution of the 1961 50-year event.
+
+    Parameters
+    ----------
+    nonstationary : dict
+        Dictionary containing fitted non-stationary GEV results.
+        Required keys:
+            - params_hat = [mu0, mu1, sigma, xi]
+            - years_mean
+
+    years : array-like, optional
+        Years over which to evaluate the equivalent return period.
+        If None, uses 1961--2026.
+
+    ref_year : int
+        Base year used to define the historical event level.
+
+    ref_return_period : float
+        Return period used to define the historical reference level.
+
+    max_return_period : float
+        Maximum return period used to avoid unstable numerical tail values.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns:
+            - year
+            - mu_t
+            - return_period
+            - z_ref
+            - mu_ref
+            - delta_mu_from_ref
+    """
+    if years is None:
+        years = np.arange(1961, 2027)
+    else:
+        years = np.asarray(years, dtype=float)
+
+    mu0, mu1, sigma, xi = np.asarray(nonstationary["params_hat"], dtype=float)
+    years_mean = float(nonstationary["years_mean"])
+
+    # 1. GEV location in the base year
+    mu_ref = gev_mu_at_year(ref_year, mu0, mu1, years_mean)
+
+    # 2. Physical storm-surge level corresponding to the base-year 50-year event
+    z_ref = gev_return_level(ref_return_period, mu_ref, sigma, xi)
+
+    # 3. Internal consistency check: in the reference year, this must return approximately 50 years
+    rp_check = gev_return_period(z_ref, mu_ref, sigma, xi, max_return_period=max_return_period)
+    if not np.isclose(rp_check, ref_return_period, rtol=1e-4, atol=1e-4):
+        raise RuntimeError(
+            f"Return-period consistency check failed: expected {ref_return_period}, got {rp_check}"
+        )
+
+    # 4. Re-evaluate return period of the same fixed level in all years
+    mu_t = gev_mu_at_year(years, mu0, mu1, years_mean)
+    rp_t = np.array([
+        gev_return_period(z_ref, mu, sigma, xi, max_return_period=max_return_period)
+        for mu in mu_t
+    ])
+
+    return pd.DataFrame({
+        "year": years.astype(int),
+        "mu_t": mu_t,
+        "return_period": rp_t,
+        "z_ref": z_ref,
+        "mu_ref": mu_ref,
+        "delta_mu_from_ref": mu_t - mu_ref,
+    })
+    
+
+def return_period_evolution_1961_50yr_mc(
+    nonstationary,
+    years=None,
+    ref_year=1961,
+    ref_return_period=50,
+    confidence_level=0.90,
+    nsim=5000,
+    seed=42,
+    max_return_period=1e4,
+    max_abs_xi=0.8,
+):
+    """
+    Monte Carlo uncertainty propagation for the return-period evolution
+    of the 1961 50-year event.
+
+    The function samples [mu0, mu1, sigma, xi] from the fitted covariance matrix,
+    filters unstable samples, and recomputes the equivalent return-period curve.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns:
+            - year
+            - return_period_median
+            - return_period_lower
+            - return_period_upper
+            - z_ref_median
+            - n_valid_samples
+    """
+    if years is None:
+        years = np.arange(1961, 2027)
+    else:
+        years = np.asarray(years, dtype=float)
+
+    params_hat = np.asarray(nonstationary["params_hat"], dtype=float)
+    cov = np.asarray(nonstationary["cov"], dtype=float)
+    years_mean = float(nonstationary["years_mean"])
+
+    rng = np.random.default_rng(seed)
+    samples = rng.multivariate_normal(params_hat, cov, size=nsim)
+
+    # Filter physically/numerically unstable samples
+    valid = (
+        np.isfinite(samples).all(axis=1)
+        & (samples[:, 2] > 0)                 # sigma > 0
+        & (np.abs(samples[:, 3]) <= max_abs_xi)  # avoid extreme tail instability
+    )
+    samples = samples[valid]
+
+    sims = np.full((len(samples), len(years)), np.nan)
+    z_refs = np.full(len(samples), np.nan)
+
+    for i, (mu0, mu1, sigma, xi) in enumerate(samples):
+        mu_ref = gev_mu_at_year(ref_year, mu0, mu1, years_mean)
+        z_ref = gev_return_level(ref_return_period, mu_ref, sigma, xi)
+        z_refs[i] = z_ref
+
+        # Consistency check for each sample
+        rp_check = gev_return_period(z_ref, mu_ref, sigma, xi, max_return_period=max_return_period)
+        if not np.isfinite(rp_check) or not np.isclose(rp_check, ref_return_period, rtol=1e-3, atol=1e-3):
+            continue
+
+        mu_t = gev_mu_at_year(years, mu0, mu1, years_mean)
+        sims[i, :] = [
+            gev_return_period(z_ref, mu, sigma, xi, max_return_period=max_return_period)
+            for mu in mu_t
+        ]
+
+    alpha = 1.0 - confidence_level
+
+    valid_rows = np.isfinite(sims).any(axis=1)
+    if valid_rows.sum() == 0:
+        return pd.DataFrame({
+            "year": years.astype(int),
+            "return_period_median": np.nan,
+            "return_period_lower": np.nan,
+            "return_period_upper": np.nan,
+            "z_ref_median": np.nan,
+            "n_valid_samples": 0,
+        })
+        
+    sim_valid = sims[valid_rows]
+    z_refs_valid = z_refs[valid_rows]
+    return pd.DataFrame({
+        "year": years.astype(int),
+        "return_period_median": np.nanmedian(sim_valid, axis=0),
+        "return_period_lower": np.nanquantile(sim_valid, alpha / 2, axis=0),
+        "return_period_upper": np.nanquantile(sim_valid, 1 - alpha / 2, axis=0),
+        "z_ref_median": np.nanmedian(z_refs_valid),
+        "n_valid_samples": np.sum(np.isfinite(sim_valid).any(axis=1)),
+    })
+
+
+# -------------- Return Period of 50-year event FOR ALL SITES --------------------
+def _compute_rp2026_one_site(
+    site_id,
+    nonstat,
+    location_geo_info,
+    eval_year,
+    ref_year,
+    ref_return_period,
+    nsim,
+    seed,
+):
+    if nonstat is None:
+        return None
+
+    try:
+        rp_df = return_period_evolution_1961_50yr_mc(
+            nonstationary=nonstat,
+            years=np.array([eval_year]),
+            ref_year=ref_year,
+            ref_return_period=ref_return_period,
+            nsim=nsim,
+            seed=None if seed is None else seed + int(site_id),
+        )
+
+        lat, lon = location_geo_info.get(site_id, (None, None))
+
+        return {
+            "site_id": site_id,
+            "lat": lat,
+            "lon": lon,
+            "return_period_2026": float(rp_df["return_period_median"].iloc[0]),
+            "return_period_lower": float(rp_df["return_period_lower"].iloc[0]),
+            "return_period_upper": float(rp_df["return_period_upper"].iloc[0]),
+            "z_ref_median": float(rp_df["z_ref_median"].iloc[0]),
+        }
+
+    except Exception as e:
+        return {
+            "site_id": site_id,
+            "lat": None,
+            "lon": None,
+            "return_period_2026": np.nan,
+            "return_period_lower": np.nan,
+            "return_period_upper": np.nan,
+            "z_ref_median": np.nan,
+            "error": str(e),
+        }
+
+
+def compute_return_period_2026_all_sites_parallel(
+    nonstat_all,
+    location_geo_info,
+    eval_year=2026,
+    ref_year=1961,
+    ref_return_period=50,
+    nsim=1000,
+    n_jobs=-1,
+    seed=42,
+):
+    results = Parallel(
+        n_jobs=n_jobs,
+        backend="loky",
+        batch_size=50,
+        verbose=10,
+    )(
+        delayed(_compute_rp2026_one_site)(
+            site_id,
+            nonstat,
+            location_geo_info,
+            eval_year,
+            ref_year,
+            ref_return_period,
+            nsim,
+            seed,
+        )
+        for site_id, nonstat in nonstat_all.items()
+    )
+
+    rows = [r for r in results if r is not None]
+    return pd.DataFrame(rows)

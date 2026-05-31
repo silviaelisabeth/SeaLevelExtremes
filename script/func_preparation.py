@@ -19,8 +19,6 @@ from xarray import DataArray, Dataset
 
 logger = logging.getLogger("mp_gev_analysis")
 
-#!!!ToDo: adding typing, remove unused functions...
-
 
 def import_all_models(ls_files:list) -> dict[str,dict]:
     dic_data_per_model = dict()
@@ -148,25 +146,6 @@ def add_location_labels(locations: DataFrame) -> DataFrame:
         
     return concat([locations.reset_index(drop=True), df_labels[['city','admin1','country']]], axis=1)
 
-
-def prepare_data(data: DataFrame, hindcast_start:int, hindcast_end: int) -> DataFrame:
-        """Calculate target years and filter to hindcast period."""
-        data['target_year'] = data['sim_year'] + data['lead']
-
-        mask = (data['target_year'] >= hindcast_start) & \
-                (data['target_year'] <= hindcast_end)
-        data_hindcast = data[mask].copy()
-
-        logger.info(
-            f"\nData Summary:"
-            f"\n\tHindcast period: {hindcast_start}-{hindcast_end}"
-            f"\n\tTotal observations: {len(data_hindcast)}"
-            f"\n\tModels: {data_hindcast['model'].nunique()}"
-            f"\n\tLocations: {min(data_hindcast[['lon', 'lat']].nunique().values)}"
-            )
-        
-        return data_hindcast
-    
 
 def sites_to_location(da:DataArray)->DataArray:
     """

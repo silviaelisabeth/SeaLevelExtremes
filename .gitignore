@@ -195,6 +195,7 @@ cython_debug/
 *txt
 
 /input
+/backup
 
 .parquet
 *.parquet
@@ -208,3 +209,4 @@ cython_debug/
 *.iml
 
 *.zip
+*.csv
